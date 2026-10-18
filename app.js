@@ -519,8 +519,16 @@ async function init() {
     await loadImage();
     try {
         const res = await fetch('/api/data');
-        regions = await res.json();
-        $('save-status').textContent = 'Cloud Synced';
+        const data = await res.json();
+        
+        // Check if the data is actually an array before using it
+        if (Array.isArray(data)) {
+            regions = data;
+            $('save-status').textContent = 'Cloud Synced';
+        } else {
+            // If it's an error object or HTML, fallback to local
+            throw new Error("Invalid cloud data");
+        }
     } catch (e) {
         console.log("Offline or API failed, falling back to local");
         regions = JSON.parse(localStorage.getItem('map_regions') || '[]');
