@@ -24,11 +24,18 @@ const modal = $('region-modal'), modalTitle = $('modal-title'), modalColor = $('
 
 function init() {
     const img = $('map-image');
-    const onLoad = () => {
-        mapWidth = img.getBBox().width;
-        mapHeight = img.getBBox().height;
-        // Re-read natural width if BBox is 0
-        if(!mapWidth) { mapWidth = img.naturalWidth || 1000; mapHeight = img.naturalHeight || 1000; }
+    
+    // Create a temporary standard image to safely get the map's exact pixel size
+    const loader = new Image();
+    loader.src = img.getAttribute('href');
+    
+    loader.onload = () => {
+        mapWidth = loader.naturalWidth;
+        mapHeight = loader.naturalHeight;
+        
+        // CRITICAL FIX: Force the SVG image to use the exact pixel size, not 100%
+        img.setAttribute('width', mapWidth);
+        img.setAttribute('height', mapHeight);
         
         currentViewBox = { x: 0, y: 0, w: mapWidth, h: mapHeight };
         updateViewBox();
@@ -36,9 +43,8 @@ function init() {
         regions = JSON.parse(localStorage.getItem('map_regions') || '[]');
         refreshUI();
     };
-
-    if (img.complete) onLoad();
-    else img.onload = onLoad;
+    
+    loader.onerror = () => alert("CRITICAL: map1.jpg failed to load. Check the file path/case.");
 
     bindEvents();
 }
@@ -304,3 +310,6 @@ function cancelDrawing() {
     currentPoints = []; tempLine.setAttribute('points', ''); tempPreview.setAttribute('points', '');
     closeHint.style.display = 'none'; document.querySelectorAll('.draw-point').forEach(c => c.remove());
 }
+
+// Start the app
+init();
