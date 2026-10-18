@@ -1,0 +1,22 @@
+.map-container { position: relative; overflow: hidden; user-select: none; touch-action: auto; background-color: #1a202c; }
+#map-image { display: block; max-width: 100%; height: auto; pointer-events: none; }
+#map-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; touch-action: none; }
+
+.mode-edit #map-svg { cursor: crosshair; }
+.mode-edit .region-polygon { pointer-events: auto; cursor: pointer; }
+.mode-interactive #map-svg { cursor: default; }
+.mode-interactive .region-polygon { cursor: pointer; transition: filter 0.15s; }
+.mode-interactive .region-polygon:hover { filter: brightness(1.4); }
+
+#temp-line { pointer-events: none; stroke: #22c55e; stroke-width: 3; fill: none; stroke-dasharray: 4; }
+#temp-line-preview { pointer-events: none; stroke: #22c55e; stroke-width: 2; fill: none; stroke-dasharray: 2 4; opacity: 0.5; }
+.draw-point { pointer-events: none; fill: #22c55e; }
+.close-hint { pointer-events: none; fill: rgba(34,197,94,0.25); stroke: #22c55e; stroke-width: 2; stroke-dasharray: 3; }
+
+.region-label { pointer-events: none; fill: white; font-size: 14px; font-weight: 600; text-anchor: middle; paint-order: stroke; stroke: black; stroke-width: 3px; stroke-linejoin: round; }
+
+.vertex-handle { fill: white; stroke: #3b82f6; stroke-width: 2px; cursor: grab; pointer-events: all; }
+.vertex-handle:hover { fill: #3b82f6; stroke: white; }
+.vertex-handle:active { cursor: grabbing; }
+
+#toast { transition: opacity 0.2s; }
