@@ -15,3 +15,5 @@
 .vertex-handle { fill: white; stroke: #3b82f6; stroke-width: 2px; cursor: grab; pointer-events: all; }
 .vertex-handle:hover { fill: #3b82f6; stroke: white; }
 .vertex-handle:active { cursor: grabbing; }
+
+#toast { transition: opacity 0.2s; }
