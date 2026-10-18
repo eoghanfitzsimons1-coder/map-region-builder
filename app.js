@@ -186,17 +186,21 @@ function cancelDrawing() {
 
 // --- Interactions ---
 function bindEvents() {
-    // --- Zoom ---
+        // --- Zoom ---
     mapSvg.addEventListener('wheel', e => {
         e.preventDefault();
-        const coords = getSVGCoordinates(e);
-        const scale = e.deltaY > 0 ? 1.15 : 0.85; // Zoom out / in
+        console.log("Wheel event fired!"); // <-- Add this to test
         
+        const scale = e.deltaY > 0 ? 1.15 : 0.85;
         let newW = currentViewBox.w * scale;
         let newH = currentViewBox.h * scale;
 
-        // Clamp zoom limits (don't zoom out further than 1.5x original, don't zoom in past 50px)
-        if (newW > mapWidth * 1.5 || newW < 50) return;
+        if (newW > mapWidth * 2 || newW < (mapWidth * 0.05)) return;
+
+        // Zoom centered on mouse
+        const pt = mapSvg.createSVGPoint();
+        pt.x = e.clientX; pt.y = e.clientY;
+        const coords = pt.matrixTransform(mapSvg.getScreenCTM().inverse());
 
         currentViewBox.x += (coords.x - currentViewBox.x) * (1 - scale);
         currentViewBox.y += (coords.y - currentViewBox.y) * (1 - scale);
@@ -204,13 +208,13 @@ function bindEvents() {
         currentViewBox.h = newH;
         
         updateViewBox();
-        renderVertices(); 
-        renderRegions(); // Re-render labels to fix font size
+        renderRegions(); 
+        renderVertices();
     }, { passive: false });
 
     // --- Pan & Draw ---
     mapSvg.addEventListener('pointerdown', e => {
-        if (e.target.tagName !== 'svg' && e.target.id !== 'map-image') return;
+        if (e.target.tagName !== 'svg' && e.target.id !== 'map-svg') return;
         if (e.button !== 0 && e.button !== 1) return; // Left or middle click
         
         isPanning = true;
@@ -266,8 +270,8 @@ function bindEvents() {
         isPanning = false;
         mapSvg.style.cursor = mode === 'EDIT' ? 'crosshair' : 'default';
         
-        // If we didn't drag, treat it as a click (drawing)
-        if (!hasDragged && (e.target.tagName === 'svg' || e.target.id === 'map-image')) {
+                // If we didn't drag, treat it as a click (drawing)
+        if (!hasDragged && (e.target.tagName === 'svg' || e.target.id === 'map-svg' || e.target.id === 'map-image')) {
             if (mode === 'EDIT' && modal.classList.contains('hidden')) {
                 const coords = getSVGCoordinates(e);
                 
