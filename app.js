@@ -15,12 +15,13 @@ let hasDragged = false;
 let panStart = { x: 0, y: 0 };
 let mouseStart = { x: 0, y: 0 };
 
+// --- DOM ---
 const $ = id => document.getElementById(id);
 const mapSvg = $('map-svg');
 const regionsGroup = $('regions-group'), verticesGroup = $('vertices-group'), labelsGroup = $('labels-group');
 const tempLine = $('temp-line'), tempPreview = $('temp-line-preview'), closeHint = $('close-hint');
-const regionList = $('region-list'), infoTitle = $('info-title'), infoCards = $('info-cards');
-const modal = $('region-modal'), modalTitle = $('modal-title'), modalColor = $('modal-color');
+const regionList = $('region-list'), infoTitle = $('info-title'), infoCards = $('info-cards'), infoDesc = $('info-desc');
+const modal = $('region-modal'), modalTitle = $('modal-title'), modalColor = $('modal-color'), modalDesc = $('modal-desc');
 
 function init() {
     const img = $('map-image');
@@ -33,7 +34,7 @@ function init() {
         mapWidth = loader.naturalWidth;
         mapHeight = loader.naturalHeight;
         
-        // CRITICAL FIX: Force the SVG image to use the exact pixel size, not 100%
+        // Force the SVG image to use the exact pixel size, not 100%
         img.setAttribute('width', mapWidth);
         img.setAttribute('height', mapHeight);
         
@@ -226,6 +227,16 @@ function bindEvents() {
             editRegion(r.id);
         } else {
             infoTitle.textContent = r.title;
+            
+            // Render Description
+            if (r.description) {
+                infoDesc.textContent = r.description;
+                infoDesc.classList.remove('hidden');
+            } else {
+                infoDesc.classList.add('hidden');
+            }
+            
+            // Render Cards
             infoCards.innerHTML = '';
             const labels = { climate: 'Climate', resources: 'Resources', capital: 'Capital', settlements: 'Settlements', government: 'Government', export: 'Export', religion: 'Religion', danger: 'Danger' };
             if (r.details) {
@@ -250,7 +261,7 @@ function bindEvents() {
 
     // Buttons
     $('btn-edit-mode').onclick = () => { mode = 'EDIT'; document.getElementById('map-wrapper').className = 'map-container mode-edit inline-block m-auto shadow-2xl'; $('edit-panel').classList.remove('hidden'); $('view-panel').classList.add('hidden'); refreshUI(); };
-    $('btn-view-mode').onclick = () => { mode = 'VIEW'; document.getElementById('map-wrapper').className = 'map-container mode-view inline-block m-auto shadow-2xl'; $('edit-panel').classList.add('hidden'); $('view-panel').classList.remove('hidden'); infoTitle.textContent = 'Select a Region'; infoCards.innerHTML = ''; refreshUI(); };
+    $('btn-view-mode').onclick = () => { mode = 'VIEW'; document.getElementById('map-wrapper').className = 'map-container mode-view inline-block m-auto shadow-2xl'; $('edit-panel').classList.add('hidden'); $('view-panel').classList.remove('hidden'); infoTitle.textContent = 'Select a Region'; infoDesc.classList.add('hidden'); infoCards.innerHTML = ''; refreshUI(); };
     $('btn-reset-zoom').onclick = () => { currentViewBox = { x: 0, y: 0, w: mapWidth, h: mapHeight }; updateViewBox(); refreshUI(); };
     $('btn-undo').onclick = () => { if(undoStack.length) { redoStack.push(JSON.stringify(regions)); regions = JSON.parse(undoStack.pop()); saveData(); refreshUI(); } };
     $('btn-redo').onclick = () => { if(redoStack.length) { undoStack.push(JSON.stringify(regions)); regions = JSON.parse(redoStack.pop()); saveData(); refreshUI(); } };
@@ -264,18 +275,43 @@ function bindEvents() {
 
     // Modal
     $('btn-modal-cancel').onclick = () => { modal.classList.add('hidden'); cancelDrawing(); };
+    
     $('btn-modal-save').onclick = () => {
         const title = modalTitle.value.trim() || 'Untitled';
+        const description = modalDesc.value.trim();
+        
+        const details = { 
+            climate: $('det-climate').value, 
+            resources: $('det-resources').value, 
+            capital: $('det-capital').value, 
+            settlements: $('det-settlements').value, 
+            government: $('det-gov').value, 
+            export: $('det-export').value, 
+            religion: $('det-religion').value, 
+            danger: $('det-danger').value 
+        };
+
         pushUndo();
+        
         if (editingId) {
             const r = regions.find(x => x.id === editingId);
-            r.title = title; r.color = modalColor.value;
-            r.details = { climate: $('det-climate').value, resources: $('det-resources').value, capital: $('det-capital').value, settlements: $('det-settlements').value, government: $('det-gov').value, export: $('det-export').value, religion: $('det-religion').value, danger: $('det-danger').value };
+            r.title = title; 
+            r.color = modalColor.value;
+            r.description = description;
+            r.details = details;
         } else {
-            regions.push({ id: 'r_' + Date.now(), title, color: modalColor.value, details: {}, points: currentPoints.map(p => ({ x: p.x / mapWidth, y: p.y / mapHeight })) });
+            regions.push({ 
+                id: 'r_' + Date.now(), 
+                title, 
+                description: description,
+                color: modalColor.value, 
+                details: details,
+                points: currentPoints.map(p => ({ x: p.x / mapWidth, y: p.y / mapHeight })) 
+            });
         }
         saveData(); refreshUI(); modal.classList.add('hidden'); cancelDrawing();
     };
+    
     $('btn-modal-delete').onclick = () => {
         if (confirm("Delete this region?")) { pushUndo(); regions = regions.filter(x => x.id !== editingId); if (selectedRegionId === editingId) selectedRegionId = null; saveData(); refreshUI(); modal.classList.add('hidden'); cancelDrawing(); }
     };
@@ -284,7 +320,7 @@ function bindEvents() {
 function finishDrawing() {
     editingId = null;
     $('modal-heading').textContent = 'New Region';
-    modalTitle.value = ''; modalColor.value = '#3b82f6';
+    modalTitle.value = ''; modalColor.value = '#3b82f6'; modalDesc.value = '';
     ['climate','resources','capital','settlements','gov','export','religion','danger'].forEach(d => $('det-'+d).value = '');
     $('btn-modal-delete').classList.add('hidden');
     modal.classList.remove('hidden');
@@ -296,11 +332,14 @@ function editRegion(id) {
     const r = regions.find(x => x.id === id);
     $('modal-heading').textContent = 'Edit Region';
     modalTitle.value = r.title; modalColor.value = r.color;
+    modalDesc.value = r.description || '';
+    
     const d = r.details || {};
     $('det-climate').value = d.climate || ''; $('det-resources').value = d.resources || '';
     $('det-capital').value = d.capital || ''; $('det-settlements').value = d.settlements || '';
     $('det-gov').value = d.government || ''; $('det-export').value = d.export || '';
     $('det-religion').value = d.religion || ''; $('det-danger').value = d.danger || '';
+    
     $('btn-modal-delete').classList.remove('hidden');
     modal.classList.remove('hidden');
     modalTitle.focus();
