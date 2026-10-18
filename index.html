@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
-<body class="bg-gray-900 text-white h-screen flex flex-col font-sans overflow-hidden">
+<body class="bg-gray-900 text-white h-screen flex flex-col font-sans overflow-hidden" onload="init()">
 
     <!-- Top Navigation -->
     <nav class="bg-gray-800 p-3 shadow-md flex justify-between items-center z-10 flex-wrap gap-2">
@@ -21,18 +21,15 @@
                 <button id="btn-view-mode" class="px-3 py-1.5 rounded text-gray-300 hover:bg-gray-600 text-sm">View</button>
             </div>
             <div class="h-6 w-px bg-gray-600 mx-1"></div>
-            <button id="btn-undo" class="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-sm" title="Undo" disabled>↶ Undo</button>
-            <button id="btn-redo" class="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-sm" title="Redo" disabled>↷ Redo</button>
+            <button id="btn-undo" class="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-sm" disabled>↶ Undo</button>
+            <button id="btn-redo" class="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-sm" disabled>↷ Redo</button>
             <div class="h-6 w-px bg-gray-600 mx-1"></div>
-            <label class="cursor-pointer bg-green-700 hover:bg-green-600 px-3 py-1.5 rounded text-sm" title="Export JSON Backup">
-                Export JSON
-                <button id="btn-export" class="hidden"></button>
-            </label>
-            <label class="cursor-pointer bg-yellow-700 hover:bg-yellow-600 px-3 py-1.5 rounded text-sm" title="Import JSON Backup">
+            <button id="btn-export" class="bg-green-700 hover:bg-green-600 px-3 py-1.5 rounded text-sm">Export JSON</button>
+            <label class="cursor-pointer bg-yellow-700 hover:bg-yellow-600 px-3 py-1.5 rounded text-sm">
                 Import JSON
                 <input type="file" id="file-import" accept=".json" class="hidden">
             </label>
-                   <button id="btn-reset-zoom" class="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm" title="Reset Zoom">Reset Zoom</button>
+            <button id="btn-reset-zoom" class="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm">Reset Zoom</button>
         </div>
     </nav>
 
@@ -45,9 +42,8 @@
                     <h2 class="text-lg font-bold mb-3 text-blue-300">Editing</h2>
                     <ul class="list-disc pl-5 space-y-1 text-gray-300 text-sm mb-6">
                         <li>Click to add points.</li>
-                        <li><strong>Click the first point</strong> (or Enter) to close.</li>
-                        <li>Click a shape to drag its vertices.</li>
-                        <li>Backspace removes last point. Esc cancels.</li>
+                        <li><strong>Click the first point</strong> to close.</li>
+                        <li>Click a shape to drag vertices or edit details.</li>
                     </ul>
                     <h3 class="text-md font-semibold text-gray-300 mb-2">Regions</h3>
                     <ul id="region-list" class="space-y-1 text-sm text-gray-400"></ul>
@@ -63,10 +59,11 @@
         <!-- Map Area -->
         <main class="flex-1 relative overflow-auto bg-black flex justify-center items-start">
             <div id="map-wrapper" class="map-container mode-edit inline-block m-auto shadow-2xl">
-                <img id="map-image" src="map1.jpg" alt="Map Background">
-                <svg id="map-svg" preserveAspectRatio="none">
+                <!-- Moved image INSIDE the SVG so they zoom together -->
+                <svg id="map-svg" xmlns="http://www.w3.org/2000/svg">
+                    <image id="map-image" href="map1.jpg" x="0" y="0" width="100%" height="100%" />
                     <g id="regions-group"></g>
-                    <g id="vertices-group"></g> <!-- Vertex Handles Layer -->
+                    <g id="vertices-group"></g>
                     <g id="labels-group"></g>
                     <g id="drawing-group">
                         <polyline id="temp-line-preview"></polyline>
@@ -86,19 +83,16 @@
                 <label class="block text-sm font-medium text-gray-400 mb-1">Title</label>
                 <input type="text" id="modal-title" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500">
             </div>
-            
-            <!-- Structured Information Cards -->
             <div class="grid grid-cols-2 gap-3 mb-4 max-h-64 overflow-y-auto pr-2">
                 <div><label class="text-xs text-gray-400">Climate</label><input type="text" id="det-climate" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
                 <div><label class="text-xs text-gray-400">Resources</label><input type="text" id="det-resources" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
                 <div><label class="text-xs text-gray-400">Capital</label><input type="text" id="det-capital" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
-                <div><label class="text-xs text-gray-400">Other Settlements</label><input type="text" id="det-settlements" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
+                <div><label class="text-xs text-gray-400">Settlements</label><input type="text" id="det-settlements" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
                 <div><label class="text-xs text-gray-400">Government</label><input type="text" id="det-gov" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
-                <div><label class="text-xs text-gray-400">Primary Export</label><input type="text" id="det-export" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
-                <div><label class="text-xs text-gray-400">State Religion</label><input type="text" id="det-religion" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
-                <div><label class="text-xs text-gray-400">Danger Level</label><input type="text" id="det-danger" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
+                <div><label class="text-xs text-gray-400">Export</label><input type="text" id="det-export" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
+                <div><label class="text-xs text-gray-400">Religion</label><input type="text" id="det-religion" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
+                <div><label class="text-xs text-gray-400">Danger</label><input type="text" id="det-danger" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
             </div>
-
             <div class="mb-6">
                 <label class="block text-sm font-medium text-gray-400 mb-1">Color</label>
                 <input type="color" id="modal-color" value="#3b82f6" class="w-full h-10 bg-gray-900 border border-gray-600 rounded cursor-pointer">
