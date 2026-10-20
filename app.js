@@ -84,11 +84,22 @@ function saveData() {
             headers: { 'Content-Type': 'application/json' },
             body: snapshot
         });
-        if (!response.ok) throw new Error(`Saving regions failed (${response.status})`);
+        if (!response.ok) await throwResponseError(response, 'Saving regions');
         $('save-status').textContent = 'Saved to Netlify';
     });
     saveQueue = save;
     return save;
+}
+
+async function throwResponseError(response, action) {
+    let message = `${action} failed (${response.status})`;
+    try {
+        const body = await response.json();
+        if (body.error) message += `: ${body.error}`;
+    } catch {
+        if (response.statusText) message += `: ${response.statusText}`;
+    }
+    throw new Error(message);
 }
 
 function persistData() {
@@ -99,8 +110,8 @@ function reportPersistenceError(error, action) {
     console.error(`Could not ${action} region data in Netlify Blobs:`, error);
     $('save-status').textContent = action === 'load' ? 'Load failed' : 'Save failed';
     showToast(action === 'load'
-        ? 'Could not load saved regions from Netlify. Check the connection and reload.'
-        : 'Could not save to Netlify. Check the connection and try again.');
+        ? `Could not load saved regions from Netlify: ${error.message}`
+        : `Could not save to Netlify: ${error.message}`);
 }
 
 function showToast(message) {
@@ -434,7 +445,7 @@ async function uploadCoatArms(regionId, file) {
         headers: { 'Content-Type': file.type },
         body: file
     });
-    if (!response.ok) throw new Error(`Uploading the coat of arms failed (${response.status})`);
+    if (!response.ok) await throwResponseError(response, 'Uploading the coat of arms');
     return version;
 }
 
