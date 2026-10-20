@@ -7,12 +7,14 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
-<body class="bg-gray-900 text-white h-screen flex flex-col font-sans overflow-hidden" onload="init()">
+<body class="bg-gray-900 text-white h-screen flex flex-col font-sans overflow-hidden">
 
     <!-- Top Navigation -->
-    <nav class="bg-gray-800 p-3 shadow-md flex justify-between items-center z-10 flex-wrap gap-2">
+    <nav class="bg-gray-800 p-3 shadow-md flex justify-between items-center z-20 flex-wrap gap-2">
         <div class="flex items-center gap-3">
             <h1 class="text-lg font-bold text-blue-400">Map Builder</h1>
+            <select id="map-select" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm max-w-[12rem]" aria-label="Current map"></select>
+            <button id="btn-maps" class="px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-sm" title="Manage maps and map scale">Maps…</button>
             <span class="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300" id="save-status">Connecting to Netlify…</span>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
@@ -21,14 +23,15 @@
                 <button id="btn-view-mode" class="px-3 py-1.5 rounded text-gray-300 hover:bg-gray-600 text-sm">View</button>
             </div>
             <div class="h-6 w-px bg-gray-600 mx-1"></div>
-            <button id="btn-undo" class="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-sm" disabled>↶ Undo</button>
-            <button id="btn-redo" class="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-sm" disabled>↷ Redo</button>
+            <button id="btn-undo" class="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-sm" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+            <button id="btn-redo" class="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-sm" title="Redo (Ctrl+Shift+Z)" disabled>↷ Redo</button>
             <div class="h-6 w-px bg-gray-600 mx-1"></div>
             <button id="btn-export" class="bg-green-700 hover:bg-green-600 px-3 py-1.5 rounded text-sm">Export JSON</button>
             <label class="cursor-pointer bg-yellow-700 hover:bg-yellow-600 px-3 py-1.5 rounded text-sm">
                 Import JSON
                 <input type="file" id="file-import" accept=".json" class="hidden">
             </label>
+            <button id="btn-export-png" class="bg-purple-700 hover:bg-purple-600 px-3 py-1.5 rounded text-sm">Export PNG</button>
             <button id="btn-reset-zoom" class="bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm">Reset Zoom</button>
         </div>
     </nav>
@@ -40,45 +43,106 @@
             <div class="p-5 flex-1 overflow-y-auto">
                 <div id="edit-panel">
                     <h2 class="text-lg font-bold mb-3 text-blue-300">Editing</h2>
-                    <ul class="list-disc pl-5 space-y-1 text-gray-300 text-sm mb-6">
-                        <li>Click to add points.</li>
-                        <li><strong>Click the first point</strong> to close.</li>
-                        <li>Drag anywhere, including over shapes, to pan the map.</li>
-                        <li>Click a shape to edit details; drag its handles to move vertices.</li>
-                    </ul>
+                    <ul id="tool-help" class="list-disc pl-5 space-y-1 text-gray-300 text-sm mb-6"></ul>
                     <h3 class="text-md font-semibold text-gray-300 mb-2">Regions</h3>
-                    <ul id="region-list" class="space-y-1 text-sm text-gray-400"></ul>
+                    <ul id="region-list" class="space-y-1 text-sm text-gray-400 mb-5"></ul>
+                    <h3 class="text-md font-semibold text-gray-300 mb-2">Places</h3>
+                    <ul id="poi-list" class="space-y-1 text-sm text-gray-400 mb-5"></ul>
+                    <h3 class="text-md font-semibold text-gray-300 mb-2">Routes</h3>
+                    <ul id="route-list" class="space-y-1 text-sm text-gray-400"></ul>
                 </div>
                 <div id="view-panel" class="hidden">
-                    <img id="info-coat-of-arms" class="hidden w-32 h-32 object-contain mx-auto mb-4 rounded bg-gray-900 p-2" alt="Coat of arms">
-                    <h2 class="text-2xl font-bold mb-2 text-white" id="info-title">Select a Region</h2>
-                    <div class="w-12 h-1 bg-blue-500 mb-4 rounded"></div>
-                    <div id="info-tabs" class="hidden flex gap-2 mb-4 border-b border-gray-700" role="tablist" aria-label="Region information">
-                        <button id="info-overview-tab" class="px-3 py-2 border-b-2 border-blue-500 text-white text-sm font-semibold" role="tab" aria-selected="true">Overview</button>
-                        <button id="info-history-button" class="px-3 py-2 border-b-2 border-transparent text-gray-400 hover:text-white text-sm font-semibold" role="tab" aria-selected="false">History</button>
+                    <div id="view-empty">
+                        <h2 class="text-2xl font-bold mb-2 text-white">Explore the map</h2>
+                        <div class="w-12 h-1 bg-blue-500 mb-4 rounded"></div>
+                        <p class="text-sm text-gray-400 mb-4">Click a region, pin or route on the map, or pick a region below.</p>
+                        <ul id="view-region-list" class="space-y-1 text-sm text-gray-300"></ul>
                     </div>
-                    <p class="text-gray-300 whitespace-pre-wrap mb-4 hidden" id="info-desc"></p>
-                    <div id="info-cards" class="space-y-2 text-sm mt-4"></div>
+                    <div id="view-region" class="hidden">
+                        <button type="button" id="btn-view-back" class="text-sm text-blue-400 hover:text-blue-300 mb-3">← All regions</button>
+                        <img id="info-coat-of-arms" class="hidden w-32 h-32 object-contain mx-auto mb-4 rounded bg-gray-900 p-2" alt="Coat of arms">
+                        <h2 class="text-2xl font-bold mb-1 text-white" id="info-title">Select a Region</h2>
+                        <p id="info-years" class="text-xs text-gray-400 mb-2 hidden"></p>
+                        <div class="w-12 h-1 bg-blue-500 mb-4 rounded"></div>
+                        <div id="info-tabs" class="flex gap-2 mb-4 border-b border-gray-700" role="tablist" aria-label="Region information">
+                            <button id="info-overview-tab" class="px-3 py-2 border-b-2 border-blue-500 text-white text-sm font-semibold" role="tab" aria-selected="true">Overview</button>
+                            <button id="info-history-button" class="px-3 py-2 border-b-2 border-transparent text-gray-400 hover:text-white text-sm font-semibold" role="tab" aria-selected="false">History</button>
+                        </div>
+                        <p class="text-gray-300 whitespace-pre-wrap mb-4 hidden" id="info-desc"></p>
+                        <div id="info-cards" class="space-y-2 text-sm mt-4"></div>
+                        <div id="info-places-section" class="hidden mt-5">
+                            <h3 class="text-sm font-semibold text-gray-300 mb-2">Places in this region</h3>
+                            <ul id="info-places" class="space-y-1 text-sm"></ul>
+                        </div>
+                    </div>
                 </div>
             </div>
         </aside>
 
         <!-- Map Area -->
-        <main class="flex-1 relative overflow-auto bg-black flex justify-center items-start">
+        <main id="map-main" class="flex-1 relative overflow-hidden bg-black flex justify-center items-start">
             <div id="map-wrapper" class="map-container mode-edit inline-block m-auto shadow-2xl">
-                <!-- Moved image INSIDE the SVG so they zoom together -->
                 <svg id="map-svg" xmlns="http://www.w3.org/2000/svg">
-    <image id="map-image" href="map1.jpg" x="0" y="0" />
-    <g id="regions-group"></g>
-    <g id="vertices-group"></g>
-    <g id="labels-group"></g>
-    <g id="drawing-group">
-        <polyline id="temp-line-preview"></polyline>
-        <polyline id="temp-line"></polyline>
-        <circle id="close-hint" class="close-hint" style="display:none"></circle>
-    </g>
-</svg>
+                    <image id="map-image" x="0" y="0" />
+                    <g id="regions-group"></g>
+                    <g id="routes-group"></g>
+                    <g id="labels-group"></g>
+                    <g id="pois-group"></g>
+                    <g id="vertices-group"></g>
+                    <g id="drawing-group">
+                        <polyline id="temp-line-preview"></polyline>
+                        <polyline id="temp-line"></polyline>
+                        <polyline id="route-preview"></polyline>
+                        <circle id="close-hint" class="close-hint" style="display:none"></circle>
+                    </g>
+                    <g id="measure-group"></g>
+                </svg>
             </div>
+
+            <!-- Tools -->
+            <div id="map-tools" class="absolute top-3 left-3 flex flex-wrap gap-1 bg-gray-800/90 border border-gray-700 rounded-lg p-1 shadow-lg z-10">
+                <button data-tool="region" class="tool-btn edit-only">⬠ Region</button>
+                <button data-tool="pin" class="tool-btn edit-only">📍 Pin</button>
+                <button data-tool="route" class="tool-btn edit-only">〰 Route</button>
+                <button data-tool="measure" class="tool-btn">📏 Measure</button>
+                <button id="btn-finish-route" class="hidden px-2 py-1 rounded bg-green-700 hover:bg-green-600 text-sm">Finish route</button>
+            </div>
+
+            <!-- View options -->
+            <div class="absolute top-3 right-3 flex items-center gap-2 bg-gray-800/90 border border-gray-700 rounded-lg px-2 py-1 shadow-lg z-10 text-sm">
+                <label for="theme-select" class="text-gray-400">Color by</label>
+                <select id="theme-select" class="bg-gray-700 border border-gray-600 rounded px-1 py-0.5">
+                    <option value="">Region color</option>
+                    <option value="government">Government</option>
+                    <option value="religion">Religion</option>
+                    <option value="climate">Climate</option>
+                    <option value="danger">Danger</option>
+                </select>
+            </div>
+
+            <div id="legend" class="hidden absolute bottom-3 left-3 bg-gray-800/95 border border-gray-700 rounded-lg p-3 shadow-lg z-10 text-sm max-w-xs"></div>
+
+            <div id="timeline" class="hidden absolute bottom-3 left-1/2 -translate-x-1/2 bg-gray-800/95 border border-gray-700 rounded-lg px-3 py-2 shadow-lg z-10 text-sm flex items-center gap-3">
+                <label class="flex items-center gap-1 text-gray-300 cursor-pointer">
+                    <input type="checkbox" id="timeline-enabled"> Timeline
+                </label>
+                <button id="btn-timeline-play" class="px-2 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40" aria-label="Play timeline" disabled>▶</button>
+                <input type="range" id="timeline-range" class="w-56" disabled>
+                <span id="timeline-year" class="w-20 text-right tabular-nums text-gray-200"></span>
+            </div>
+
+            <div class="absolute bottom-3 right-3 flex flex-col items-end gap-2 z-10 pointer-events-none">
+                <div id="measure-readout" class="hidden pointer-events-auto bg-gray-800/95 border border-amber-500 rounded-lg px-3 py-2 shadow-lg text-sm">
+                    <span id="measure-text"></span>
+                    <button id="btn-clear-measure" class="ml-2 text-gray-400 hover:text-white">Clear</button>
+                </div>
+                <div id="scale-bar" class="hidden bg-gray-800/80 rounded px-2 py-1 text-xs text-gray-200">
+                    <div id="scale-bar-line" class="h-1.5 border-x-2 border-b-2 border-white"></div>
+                    <div id="scale-bar-label" class="text-center mt-0.5"></div>
+                </div>
+            </div>
+
+            <div id="map-popup" class="hidden absolute z-20 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl p-3 text-sm w-64"></div>
         </main>
     </div>
 
@@ -91,27 +155,41 @@
                 <input type="text" id="modal-title" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500">
             </div>
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-400 mb-1">Description</label>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-sm font-medium text-gray-400">Description</label>
+                    <button type="button" id="btn-ai-description" class="ai-btn">✨ Generate</button>
+                </div>
                 <textarea id="modal-desc" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white h-24 focus:outline-none focus:border-blue-500"></textarea>
             </div>
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-400 mb-1">Region history</label>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-sm font-medium text-gray-400">Region history</label>
+                    <button type="button" id="btn-ai-history" class="ai-btn">✨ Generate</button>
+                </div>
                 <textarea id="modal-history" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white h-32 focus:outline-none focus:border-blue-500" placeholder="Write the history of this region"></textarea>
+                <p class="text-xs text-gray-500 mt-1">Supports Markdown (## headings, **bold**, *italic*, - lists) and [[Region Name]] links to other regions.</p>
             </div>
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-400 mb-1">Coat of arms</label>
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-sm font-medium text-gray-400">Coat of arms</label>
+                    <button type="button" id="btn-ai-coat" class="ai-btn">✨ Draft with AI</button>
+                </div>
                 <input type="file" id="modal-coat-of-arms" accept="image/*" class="block w-full text-sm text-gray-300 file:mr-3 file:px-3 file:py-2 file:rounded file:border-0 file:bg-gray-700 file:text-white">
                 <div class="flex items-center gap-3 mt-2">
                     <img id="modal-coat-preview" class="hidden w-16 h-16 object-contain rounded bg-gray-900 p-1" alt="Coat of arms preview">
                     <button type="button" id="btn-clear-coat-of-arms" class="hidden text-sm text-red-400 hover:text-red-300">Remove image</button>
                 </div>
-                <p class="text-xs text-gray-500 mt-1">Images are stored in Netlify Blobs. Maximum file size: 5 MB.</p>
+                <p class="text-xs text-gray-500 mt-1">Images are stored in Netlify Blobs. Large images are shrunk to fit 5 MB.</p>
+            </div>
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <div><label class="text-xs text-gray-400">Start year</label><input type="number" id="modal-start-year" placeholder="Always existed" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
+                <div><label class="text-xs text-gray-400">End year</label><input type="number" id="modal-end-year" placeholder="Still exists" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
             </div>
             <div class="grid grid-cols-2 gap-3 mb-4 max-h-64 overflow-y-auto pr-2">
                 <div><label class="text-xs text-gray-400">Climate</label><input type="text" id="det-climate" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
                 <div><label class="text-xs text-gray-400">Resources</label><input type="text" id="det-resources" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
                 <div><label class="text-xs text-gray-400">Capital</label><input type="text" id="det-capital" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
-                <div><label class="text-xs text-gray-400">Settlements</label><input type="text" id="det-settlements" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
+                <div><label class="text-xs text-gray-400">Settlements</label><input type="text" id="det-settlements" placeholder="Comma separated" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
                 <div><label class="text-xs text-gray-400">Government</label><input type="text" id="det-gov" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
                 <div><label class="text-xs text-gray-400">Export</label><input type="text" id="det-export" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
                 <div><label class="text-xs text-gray-400">Religion</label><input type="text" id="det-religion" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
@@ -131,13 +209,114 @@
         </div>
     </div>
 
+    <!-- Place (pin) Modal -->
+    <div id="poi-modal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50">
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-[26rem] max-w-full">
+            <h3 class="text-xl font-bold mb-4" id="poi-heading">New Place</h3>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Name</label>
+                <input type="text" id="poi-name" list="poi-suggestions" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+                <datalist id="poi-suggestions"></datalist>
+                <p class="text-xs text-gray-500 mt-1">Suggestions come from regions' Capital and Settlements fields that are not on the map yet.</p>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Type</label>
+                <select id="poi-type" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white"></select>
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Description</label>
+                <textarea id="poi-desc" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white h-24 focus:outline-none focus:border-blue-500"></textarea>
+            </div>
+            <div class="flex justify-between">
+                <button id="btn-poi-delete" class="px-3 py-2 rounded text-red-400 hover:text-red-300 text-sm hidden">Delete</button>
+                <div class="flex gap-2 ml-auto">
+                    <button id="btn-poi-cancel" class="px-4 py-2 rounded text-gray-400 hover:text-white hover:bg-gray-700">Cancel</button>
+                    <button id="btn-poi-save" class="px-4 py-2 rounded bg-blue-600 hover:text-white font-semibold">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Route Modal -->
+    <div id="route-modal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50">
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-[26rem] max-w-full">
+            <h3 class="text-xl font-bold mb-1" id="route-heading">New Route</h3>
+            <p id="route-length" class="text-sm text-gray-400 mb-4"></p>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Name</label>
+                <input type="text" id="route-name" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Type</label>
+                <select id="route-type" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white"></select>
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Notes</label>
+                <textarea id="route-notes" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white h-20 focus:outline-none focus:border-blue-500"></textarea>
+            </div>
+            <div class="flex justify-between">
+                <button id="btn-route-delete" class="px-3 py-2 rounded text-red-400 hover:text-red-300 text-sm hidden">Delete</button>
+                <div class="flex gap-2 ml-auto">
+                    <button id="btn-route-cancel" class="px-4 py-2 rounded text-gray-400 hover:text-white hover:bg-gray-700">Cancel</button>
+                    <button id="btn-route-save" class="px-4 py-2 rounded bg-blue-600 hover:text-white font-semibold">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Maps Modal -->
+    <div id="maps-modal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50">
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-[32rem] max-w-full max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold">Maps</h3>
+                <button type="button" id="btn-maps-close" class="text-2xl leading-none text-gray-300 hover:text-white" aria-label="Close">&times;</button>
+            </div>
+
+            <h4 class="text-sm font-semibold text-blue-300 mb-2">Current map settings</h4>
+            <div class="mb-3">
+                <label class="block text-xs text-gray-400 mb-1">Name</label>
+                <input type="text" id="map-setting-name" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white">
+            </div>
+            <div class="grid grid-cols-2 gap-3 mb-1">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Distance per map pixel</label>
+                    <input type="number" id="map-setting-scale" min="0" step="any" placeholder="e.g. 0.5" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Unit</label>
+                    <input type="text" id="map-setting-unit" placeholder="leagues" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+            </div>
+            <p id="map-setting-size" class="text-xs text-gray-500 mb-3"></p>
+            <button id="btn-map-settings-save" class="px-4 py-2 rounded bg-blue-600 font-semibold text-sm mb-6">Save settings</button>
+
+            <h4 class="text-sm font-semibold text-blue-300 mb-2">All maps</h4>
+            <ul id="maps-list" class="space-y-1 text-sm mb-6"></ul>
+
+            <h4 class="text-sm font-semibold text-blue-300 mb-2">Add a map</h4>
+            <div class="mb-3">
+                <label class="block text-xs text-gray-400 mb-1">Name</label>
+                <input type="text" id="new-map-name" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white">
+            </div>
+            <div class="mb-3">
+                <label class="block text-xs text-gray-400 mb-1">Map image</label>
+                <input type="file" id="new-map-image" accept="image/*" class="block w-full text-sm text-gray-300 file:mr-3 file:px-3 file:py-2 file:rounded file:border-0 file:bg-gray-700 file:text-white">
+                <p class="text-xs text-gray-500 mt-1">Images over 5 MB are converted to JPEG and shrunk to fit.</p>
+            </div>
+            <button id="btn-add-map" class="px-4 py-2 rounded bg-green-700 hover:bg-green-600 font-semibold text-sm">Add map</button>
+        </div>
+    </div>
+
     <div id="history-overlay" class="fixed inset-0 bg-black bg-opacity-80 hidden items-center justify-center p-4 z-40" role="dialog" aria-modal="true" aria-labelledby="history-title">
         <section class="w-full max-w-3xl max-h-[85vh] flex flex-col bg-gray-800 border border-gray-600 rounded-xl shadow-2xl">
             <header class="flex items-center justify-between gap-4 p-5 border-b border-gray-700">
-                <h2 id="history-title" class="text-xl font-bold">Region history</h2>
+                <div class="flex items-center gap-4 min-w-0">
+                    <img id="history-coat-of-arms" class="hidden w-16 h-16 object-contain shrink-0 rounded bg-gray-900 p-1" alt="Coat of arms">
+                    <h2 id="history-title" class="text-xl font-bold">Region history</h2>
+                </div>
                 <button type="button" id="btn-close-history" class="text-2xl leading-none text-gray-300 hover:text-white" aria-label="Close history">&times;</button>
             </header>
-            <article id="history-content" class="p-5 overflow-y-auto whitespace-pre-wrap text-gray-200"></article>
+            <article id="history-content" class="markdown p-5 overflow-y-auto text-gray-200"></article>
         </section>
     </div>
 
