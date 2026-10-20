@@ -13,7 +13,7 @@
     <nav class="bg-gray-800 p-3 shadow-md flex justify-between items-center z-10 flex-wrap gap-2">
         <div class="flex items-center gap-3">
             <h1 class="text-lg font-bold text-blue-400">Map Builder</h1>
-            <span class="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300" id="save-status">Saved locally</span>
+            <span class="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300" id="save-status">Connecting to Netlify…</span>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
             <div class="bg-gray-700 p-1 rounded-lg flex gap-1">
@@ -43,14 +43,20 @@
                     <ul class="list-disc pl-5 space-y-1 text-gray-300 text-sm mb-6">
                         <li>Click to add points.</li>
                         <li><strong>Click the first point</strong> to close.</li>
-                        <li>Click a shape to drag vertices or edit details.</li>
+                        <li>Drag anywhere, including over shapes, to pan the map.</li>
+                        <li>Click a shape to edit details; drag its handles to move vertices.</li>
                     </ul>
                     <h3 class="text-md font-semibold text-gray-300 mb-2">Regions</h3>
                     <ul id="region-list" class="space-y-1 text-sm text-gray-400"></ul>
                 </div>
                 <div id="view-panel" class="hidden">
+                    <img id="info-coat-of-arms" class="hidden w-32 h-32 object-contain mx-auto mb-4 rounded bg-gray-900 p-2" alt="Coat of arms">
                     <h2 class="text-2xl font-bold mb-2 text-white" id="info-title">Select a Region</h2>
                     <div class="w-12 h-1 bg-blue-500 mb-4 rounded"></div>
+                    <div id="info-tabs" class="hidden flex gap-2 mb-4 border-b border-gray-700" role="tablist" aria-label="Region information">
+                        <button id="info-overview-tab" class="px-3 py-2 border-b-2 border-blue-500 text-white text-sm font-semibold" role="tab" aria-selected="true">Overview</button>
+                        <button id="info-history-button" class="px-3 py-2 border-b-2 border-transparent text-gray-400 hover:text-white text-sm font-semibold" role="tab" aria-selected="false">History</button>
+                    </div>
                     <p class="text-gray-300 whitespace-pre-wrap mb-4 hidden" id="info-desc"></p>
                     <div id="info-cards" class="space-y-2 text-sm mt-4"></div>
                 </div>
@@ -78,15 +84,28 @@
 
     <!-- Region Modal -->
     <div id="region-modal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50">
-        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-[32rem] max-w-full">
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-[32rem] max-w-full max-h-[90vh] overflow-y-auto">
             <h3 class="text-xl font-bold mb-4" id="modal-heading">Region Details</h3>
             <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-400 mb-1">Title</label>
                 <input type="text" id="modal-title" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500">
             </div>
-                        <div class="mb-4">
+            <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-400 mb-1">Description</label>
                 <textarea id="modal-desc" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white h-24 focus:outline-none focus:border-blue-500"></textarea>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Region history</label>
+                <textarea id="modal-history" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white h-32 focus:outline-none focus:border-blue-500" placeholder="Write the history of this region"></textarea>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Coat of arms</label>
+                <input type="file" id="modal-coat-of-arms" accept="image/*" class="block w-full text-sm text-gray-300 file:mr-3 file:px-3 file:py-2 file:rounded file:border-0 file:bg-gray-700 file:text-white">
+                <div class="flex items-center gap-3 mt-2">
+                    <img id="modal-coat-preview" class="hidden w-16 h-16 object-contain rounded bg-gray-900 p-1" alt="Coat of arms preview">
+                    <button type="button" id="btn-clear-coat-of-arms" class="hidden text-sm text-red-400 hover:text-red-300">Remove image</button>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">Images are stored in Netlify Blobs. Maximum file size: 5 MB.</p>
             </div>
             <div class="grid grid-cols-2 gap-3 mb-4 max-h-64 overflow-y-auto pr-2">
                 <div><label class="text-xs text-gray-400">Climate</label><input type="text" id="det-climate" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white"></div>
@@ -110,6 +129,16 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <div id="history-overlay" class="fixed inset-0 bg-black bg-opacity-80 hidden items-center justify-center p-4 z-40" role="dialog" aria-modal="true" aria-labelledby="history-title">
+        <section class="w-full max-w-3xl max-h-[85vh] flex flex-col bg-gray-800 border border-gray-600 rounded-xl shadow-2xl">
+            <header class="flex items-center justify-between gap-4 p-5 border-b border-gray-700">
+                <h2 id="history-title" class="text-xl font-bold">Region history</h2>
+                <button type="button" id="btn-close-history" class="text-2xl leading-none text-gray-300 hover:text-white" aria-label="Close history">&times;</button>
+            </header>
+            <article id="history-content" class="p-5 overflow-y-auto whitespace-pre-wrap text-gray-200"></article>
+        </section>
     </div>
 
     <div id="toast" class="fixed bottom-4 right-4 bg-gray-800 border border-gray-700 px-4 py-2 rounded-lg shadow-xl opacity-0 pointer-events-none z-50"></div>

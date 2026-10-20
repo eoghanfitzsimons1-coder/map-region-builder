@@ -5,6 +5,8 @@
 .mode-edit .region-polygon { pointer-events: auto; cursor: pointer; }
 .mode-view .region-polygon { pointer-events: auto; cursor: pointer; transition: filter 0.15s; }
 .mode-view .region-polygon:hover { filter: brightness(1.4); }
+.region-polygon { cursor: grab !important; }
+.region-polygon:active { cursor: grabbing !important; }
 
 #temp-line { pointer-events: none; stroke: #22c55e; stroke-width: 3; fill: none; stroke-dasharray: 4; }
 #temp-line-preview { pointer-events: none; stroke: #22c55e; stroke-width: 2; fill: none; stroke-dasharray: 2 4; opacity: 0.5; }

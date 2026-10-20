@@ -7,6 +7,11 @@ let undoStack = [], redoStack = [];
 let editingId = null;
 let selectedRegionId = null;
 let draggedVertexIndex = null;
+let pendingCoatArmsFile = null;
+let removeCoatArms = false;
+let coatPreviewObjectUrl = null;
+let saveQueue = Promise.resolve();
+let toastTimeout = null;
 
 // Zoom & Pan
 let currentViewBox = { x: 0, y: 0, w: 1000, h: 1000 };
@@ -22,15 +27,16 @@ const regionsGroup = $('regions-group'), verticesGroup = $('vertices-group'), la
 const tempLine = $('temp-line'), tempPreview = $('temp-line-preview'), closeHint = $('close-hint');
 const regionList = $('region-list'), infoTitle = $('info-title'), infoCards = $('info-cards'), infoDesc = $('info-desc');
 const modal = $('region-modal'), modalTitle = $('modal-title'), modalColor = $('modal-color'), modalDesc = $('modal-desc');
+const modalHistory = $('modal-history');
 
-function init() {
+async function init() {
     const img = $('map-image');
     
     // Create a temporary standard image to safely get the map's exact pixel size
     const loader = new Image();
     loader.src = img.getAttribute('href');
     
-    loader.onload = () => {
+    loader.onload = async () => {
         mapWidth = loader.naturalWidth;
         mapHeight = loader.naturalHeight;
         
@@ -41,7 +47,16 @@ function init() {
         currentViewBox = { x: 0, y: 0, w: mapWidth, h: mapHeight };
         updateViewBox();
 
-        regions = JSON.parse(localStorage.getItem('map_regions') || '[]');
+        try {
+            const response = await fetch('/api/data');
+            if (!response.ok) throw new Error(`Loading regions failed (${response.status})`);
+            const data = await response.json();
+            if (!Array.isArray(data)) throw new Error('The saved region data is not a valid list');
+            regions = data;
+            $('save-status').textContent = 'Saved to Netlify';
+        } catch (error) {
+            reportPersistenceError(error, 'load');
+        }
         refreshUI();
     };
     
@@ -61,8 +76,39 @@ function getSVGCoordinates(evt) {
 }
 
 function saveData() {
-    localStorage.setItem('map_regions', JSON.stringify(regions));
-    $('save-status').textContent = 'Saved locally';
+    const snapshot = JSON.stringify(regions);
+    const save = saveQueue.catch(() => {}).then(async () => {
+        $('save-status').textContent = 'Saving to Netlify…';
+        const response = await fetch('/api/data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: snapshot
+        });
+        if (!response.ok) throw new Error(`Saving regions failed (${response.status})`);
+        $('save-status').textContent = 'Saved to Netlify';
+    });
+    saveQueue = save;
+    return save;
+}
+
+function persistData() {
+    saveData().catch(error => reportPersistenceError(error, 'save'));
+}
+
+function reportPersistenceError(error, action) {
+    console.error(`Could not ${action} region data in Netlify Blobs:`, error);
+    $('save-status').textContent = action === 'load' ? 'Load failed' : 'Save failed';
+    showToast(action === 'load'
+        ? 'Could not load saved regions from Netlify. Check the connection and reload.'
+        : 'Could not save to Netlify. Check the connection and try again.');
+}
+
+function showToast(message) {
+    const toast = $('toast');
+    toast.textContent = message;
+    toast.classList.remove('opacity-0');
+    window.clearTimeout(toastTimeout);
+    toastTimeout = window.setTimeout(() => toast.classList.add('opacity-0'), 4000);
 }
 
 function pushUndo() { undoStack.push(JSON.stringify(regions)); redoStack = []; }
@@ -88,7 +134,7 @@ function renderRegions() {
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
         label.setAttribute('x', cx); label.setAttribute('y', cy);
         label.classList.add('region-label');
-        label.setAttribute('font-size', Math.max(12, currentViewBox.w / 80));
+        label.setAttribute('font-size', Math.max(16, mapWidth / 50));
         label.textContent = r.title;
         labelsGroup.appendChild(label);
     });
@@ -150,7 +196,7 @@ function bindEvents() {
 
     // Panning
     mapSvg.addEventListener('pointerdown', e => {
-        if (e.target.classList.contains('vertex-handle') || e.target.classList.contains('region-polygon')) return;
+        if (e.target.classList.contains('vertex-handle')) return;
         isPanning = true; hasDragged = false;
         mouseStart = { x: e.clientX, y: e.clientY };
         panStart = { x: currentViewBox.x, y: currentViewBox.y };
@@ -193,10 +239,15 @@ function bindEvents() {
     });
 
     mapSvg.addEventListener('pointerup', e => {
-        if (draggedVertexIndex !== null) { draggedVertexIndex = null; saveData(); }
+        if (draggedVertexIndex !== null) { draggedVertexIndex = null; persistData(); }
         if (isPanning) {
             isPanning = false; mapSvg.style.cursor = mode === 'EDIT' ? 'crosshair' : 'default';
-            if (!hasDragged && !e.target.classList.contains('vertex-handle') && !e.target.classList.contains('region-polygon')) {
+            const target = document.elementFromPoint(e.clientX, e.clientY);
+            const poly = target && target.closest('.region-polygon');
+            if (!hasDragged && poly) {
+                const region = regions.find(item => item.id === poly.dataset.id);
+                if (region) selectRegion(region);
+            } else if (!hasDragged && target && !target.classList.contains('vertex-handle')) {
                 if (mode === 'EDIT') {
                     const coords = getSVGCoordinates(e);
                     if (selectedRegionId) { selectedRegionId = null; refreshUI(); return; }
@@ -216,41 +267,6 @@ function bindEvents() {
         }
     });
 
-    // Region Clicking (Edit vs View)
-    regionsGroup.addEventListener('click', e => {
-        const poly = e.target.closest('.region-polygon');
-        if (!poly) return;
-        const r = regions.find(x => x.id === poly.dataset.id);
-        
-        if (mode === 'EDIT') {
-            e.stopPropagation();
-            editRegion(r.id);
-        } else {
-            infoTitle.textContent = r.title;
-            
-            // Render Description
-            if (r.description) {
-                infoDesc.textContent = r.description;
-                infoDesc.classList.remove('hidden');
-            } else {
-                infoDesc.classList.add('hidden');
-            }
-            
-            // Render Cards
-            infoCards.innerHTML = '';
-            const labels = { climate: 'Climate', resources: 'Resources', capital: 'Capital', settlements: 'Settlements', government: 'Government', export: 'Export', religion: 'Religion', danger: 'Danger' };
-            if (r.details) {
-                for (const [key, label] of Object.entries(labels)) {
-                    if (r.details[key]) {
-                        infoCards.innerHTML += `<div class="bg-gray-800 p-2 rounded border border-gray-700">
-                            <div class="text-xs text-blue-400 font-bold uppercase">${label}</div>
-                            <div class="text-gray-200">${r.details[key]}</div></div>`;
-                    }
-                }
-            }
-        }
-    });
-
     // Vertex Drag
     verticesGroup.addEventListener('pointerdown', e => {
         if (e.target.classList.contains('vertex-handle')) {
@@ -260,25 +276,54 @@ function bindEvents() {
     });
 
     // Buttons
-    $('btn-edit-mode').onclick = () => { mode = 'EDIT'; document.getElementById('map-wrapper').className = 'map-container mode-edit inline-block m-auto shadow-2xl'; $('edit-panel').classList.remove('hidden'); $('view-panel').classList.add('hidden'); refreshUI(); };
-    $('btn-view-mode').onclick = () => { mode = 'VIEW'; document.getElementById('map-wrapper').className = 'map-container mode-view inline-block m-auto shadow-2xl'; $('edit-panel').classList.add('hidden'); $('view-panel').classList.remove('hidden'); infoTitle.textContent = 'Select a Region'; infoDesc.classList.add('hidden'); infoCards.innerHTML = ''; refreshUI(); };
+    $('btn-edit-mode').onclick = () => { mode = 'EDIT'; closeHistory(); document.getElementById('map-wrapper').className = 'map-container mode-edit inline-block m-auto shadow-2xl'; $('edit-panel').classList.remove('hidden'); $('view-panel').classList.add('hidden'); refreshUI(); };
+    $('btn-view-mode').onclick = () => { mode = 'VIEW'; selectedRegionId = null; document.getElementById('map-wrapper').className = 'map-container mode-view inline-block m-auto shadow-2xl'; $('edit-panel').classList.add('hidden'); $('view-panel').classList.remove('hidden'); infoTitle.textContent = 'Select a Region'; infoDesc.classList.add('hidden'); infoCards.innerHTML = ''; $('info-coat-of-arms').classList.add('hidden'); $('info-tabs').classList.add('hidden'); refreshUI(); };
     $('btn-reset-zoom').onclick = () => { currentViewBox = { x: 0, y: 0, w: mapWidth, h: mapHeight }; updateViewBox(); refreshUI(); };
-    $('btn-undo').onclick = () => { if(undoStack.length) { redoStack.push(JSON.stringify(regions)); regions = JSON.parse(undoStack.pop()); saveData(); refreshUI(); } };
-    $('btn-redo').onclick = () => { if(redoStack.length) { undoStack.push(JSON.stringify(regions)); regions = JSON.parse(redoStack.pop()); saveData(); refreshUI(); } };
+    $('btn-undo').onclick = () => { if(undoStack.length) { redoStack.push(JSON.stringify(regions)); regions = JSON.parse(undoStack.pop()); persistData(); refreshUI(); } };
+    $('btn-redo').onclick = () => { if(redoStack.length) { undoStack.push(JSON.stringify(regions)); regions = JSON.parse(redoStack.pop()); persistData(); refreshUI(); } };
     
     $('btn-export').onclick = () => { const a = document.createElement('a'); a.href = "data:application/json;charset=utf-8," + encodeURIComponent(JSON.stringify(regions, null, 2)); a.download = "map_backup.json"; a.click(); };
     $('file-import').onchange = e => {
+        if (!e.target.files[0]) return;
         const reader = new FileReader();
-        reader.onload = ev => { try { const data = JSON.parse(ev.target.result); if (Array.isArray(data)) { pushUndo(); regions = data; saveData(); refreshUI(); } } catch {} };
+        reader.onload = ev => {
+            try {
+                const data = JSON.parse(ev.target.result);
+                if (!Array.isArray(data)) throw new Error('The imported file must contain a list of regions.');
+                pushUndo(); regions = data; persistData(); refreshUI();
+            } catch (error) {
+                showToast(`Could not import regions: ${error.message}`);
+            }
+        };
+        reader.onerror = () => showToast('Could not read the selected JSON file.');
         reader.readAsText(e.target.files[0]); e.target.value = '';
     };
 
     // Modal
     $('btn-modal-cancel').onclick = () => { modal.classList.add('hidden'); cancelDrawing(); };
-    
-    $('btn-modal-save').onclick = () => {
+    $('modal-coat-of-arms').onchange = e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) {
+            showToast('Choose an image no larger than 5 MB.');
+            e.target.value = '';
+            return;
+        }
+        pendingCoatArmsFile = file;
+        removeCoatArms = false;
+        setCoatPreview(URL.createObjectURL(file));
+    };
+    $('btn-clear-coat-of-arms').onclick = () => {
+        pendingCoatArmsFile = null;
+        removeCoatArms = true;
+        $('modal-coat-of-arms').value = '';
+        setCoatPreview('');
+    };
+
+    $('btn-modal-save').onclick = async () => {
         const title = modalTitle.value.trim() || 'Untitled';
         const description = modalDesc.value.trim();
+        const history = modalHistory.value.trim();
         
         const details = { 
             climate: $('det-climate').value, 
@@ -291,36 +336,164 @@ function bindEvents() {
             danger: $('det-danger').value 
         };
 
-        pushUndo();
-        
-        if (editingId) {
-            const r = regions.find(x => x.id === editingId);
-            r.title = title; 
-            r.color = modalColor.value;
-            r.description = description;
-            r.details = details;
-        } else {
-            regions.push({ 
-                id: 'r_' + Date.now(), 
-                title, 
-                description: description,
-                color: modalColor.value, 
-                details: details,
-                points: currentPoints.map(p => ({ x: p.x / mapWidth, y: p.y / mapHeight })) 
+        const existing = editingId ? regions.find(x => x.id === editingId) : null;
+        const region = existing || {
+            id: 'r_' + crypto.randomUUID(),
+            points: currentPoints.map(p => ({ x: p.x / mapWidth, y: p.y / mapHeight }))
+        };
+
+        try {
+            let coatArms = removeCoatArms ? null : region.coatArms || null;
+            if (pendingCoatArmsFile) {
+                coatArms = await uploadCoatArms(region.id, pendingCoatArmsFile);
+            }
+
+            pushUndo();
+            Object.assign(region, {
+                title,
+                color: modalColor.value,
+                description,
+                history,
+                details,
+                coatArms
             });
+            if (!existing) regions.push(region);
+            refreshUI();
+            await saveData();
+            modal.classList.add('hidden');
+            cancelDrawing();
+        } catch (error) {
+            reportPersistenceError(error, 'save');
         }
-        saveData(); refreshUI(); modal.classList.add('hidden'); cancelDrawing();
     };
     
     $('btn-modal-delete').onclick = () => {
-        if (confirm("Delete this region?")) { pushUndo(); regions = regions.filter(x => x.id !== editingId); if (selectedRegionId === editingId) selectedRegionId = null; saveData(); refreshUI(); modal.classList.add('hidden'); cancelDrawing(); }
+        if (confirm("Delete this region?")) { pushUndo(); regions = regions.filter(x => x.id !== editingId); if (selectedRegionId === editingId) selectedRegionId = null; persistData(); refreshUI(); modal.classList.add('hidden'); cancelDrawing(); }
     };
+
+    $('info-overview-tab').onclick = () => { closeHistory(); setInfoTab(false); };
+    $('info-history-button').onclick = openHistory;
+    $('btn-close-history').onclick = closeHistory;
+    $('history-overlay').onclick = e => { if (e.target === $('history-overlay')) closeHistory(); };
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHistory(); });
+}
+
+function selectRegion(region) {
+    if (mode === 'EDIT') {
+        editRegion(region.id);
+        return;
+    }
+
+    selectedRegionId = region.id;
+    infoTitle.textContent = region.title;
+    infoDesc.textContent = region.description || '';
+    infoDesc.classList.toggle('hidden', !region.description);
+
+    const coatArms = $('info-coat-of-arms');
+    if (region.coatArms) {
+        coatArms.src = imageEndpoint(region.id, region.coatArms);
+        coatArms.classList.remove('hidden');
+    } else {
+        coatArms.removeAttribute('src');
+        coatArms.classList.add('hidden');
+    }
+
+    const historyButton = $('info-history-button');
+    $('info-tabs').classList.remove('hidden');
+    setInfoTab(false);
+    $('history-title').textContent = `${region.title} — History`;
+    $('history-content').textContent = region.history || 'No history has been added for this region yet.';
+
+    infoCards.innerHTML = '';
+    const labels = { climate: 'Climate', resources: 'Resources', capital: 'Capital', settlements: 'Settlements', government: 'Government', export: 'Export', religion: 'Religion', danger: 'Danger' };
+    if (region.details) {
+        for (const [key, label] of Object.entries(labels)) {
+            if (!region.details[key]) continue;
+            const card = document.createElement('div');
+            card.className = 'bg-gray-800 p-2 rounded border border-gray-700';
+            const heading = document.createElement('div');
+            heading.className = 'text-xs text-blue-400 font-bold uppercase';
+            heading.textContent = label;
+            const value = document.createElement('div');
+            value.className = 'text-gray-200';
+            value.textContent = region.details[key];
+            card.append(heading, value);
+            infoCards.appendChild(card);
+        }
+    }
+}
+
+function imageEndpoint(regionId, version) {
+    return `/api/data?image=${encodeURIComponent(regionId)}&version=${encodeURIComponent(version)}`;
+}
+
+async function uploadCoatArms(regionId, file) {
+    const version = crypto.randomUUID();
+    const response = await fetch(imageEndpoint(regionId, version), {
+        method: 'POST',
+        headers: { 'Content-Type': file.type },
+        body: file
+    });
+    if (!response.ok) throw new Error(`Uploading the coat of arms failed (${response.status})`);
+    return version;
+}
+
+function setCoatPreview(src) {
+    if (coatPreviewObjectUrl) URL.revokeObjectURL(coatPreviewObjectUrl);
+    coatPreviewObjectUrl = src && src.startsWith('blob:') ? src : null;
+    const preview = $('modal-coat-preview');
+    if (src) {
+        preview.src = src;
+        preview.classList.remove('hidden');
+        $('btn-clear-coat-of-arms').classList.remove('hidden');
+    } else {
+        preview.removeAttribute('src');
+        preview.classList.add('hidden');
+        $('btn-clear-coat-of-arms').classList.add('hidden');
+    }
+}
+
+function resetCoatArmsForm(version, regionId) {
+    pendingCoatArmsFile = null;
+    removeCoatArms = false;
+    $('modal-coat-of-arms').value = '';
+    setCoatPreview(version ? imageEndpoint(regionId, version) : '');
+}
+
+function openHistory() {
+    setInfoTab(true);
+    $('history-overlay').classList.remove('hidden');
+    $('history-overlay').classList.add('flex');
+    $('btn-close-history').focus();
+}
+
+function closeHistory() {
+    $('history-overlay').classList.add('hidden');
+    $('history-overlay').classList.remove('flex');
+    setInfoTab(false);
+}
+
+function setInfoTab(historySelected) {
+    const overview = $('info-overview-tab');
+    const history = $('info-history-button');
+    overview.setAttribute('aria-selected', String(!historySelected));
+    history.setAttribute('aria-selected', String(historySelected));
+    overview.classList.toggle('border-blue-500', !historySelected);
+    overview.classList.toggle('border-transparent', historySelected);
+    overview.classList.toggle('text-white', !historySelected);
+    overview.classList.toggle('text-gray-400', historySelected);
+    history.classList.toggle('border-blue-500', historySelected);
+    history.classList.toggle('border-transparent', !historySelected);
+    history.classList.toggle('text-white', historySelected);
+    history.classList.toggle('text-gray-400', !historySelected);
 }
 
 function finishDrawing() {
     editingId = null;
     $('modal-heading').textContent = 'New Region';
     modalTitle.value = ''; modalColor.value = '#3b82f6'; modalDesc.value = '';
+    modalHistory.value = '';
+    resetCoatArmsForm('', '');
     ['climate','resources','capital','settlements','gov','export','religion','danger'].forEach(d => $('det-'+d).value = '');
     $('btn-modal-delete').classList.add('hidden');
     modal.classList.remove('hidden');
@@ -333,6 +506,8 @@ function editRegion(id) {
     $('modal-heading').textContent = 'Edit Region';
     modalTitle.value = r.title; modalColor.value = r.color;
     modalDesc.value = r.description || '';
+    modalHistory.value = r.history || '';
+    resetCoatArmsForm(r.coatArms, r.id);
     
     const d = r.details || {};
     $('det-climate').value = d.climate || ''; $('det-resources').value = d.resources || '';
