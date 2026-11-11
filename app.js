@@ -37,9 +37,9 @@ const THEME_NONE_COLOR = '#4b4b48';
 const THEME_LABELS = { government: 'Government', religion: 'Religion', climate: 'Climate', danger: 'Danger' };
 
 const TOOL_HELP = {
-    region: ['Click to add points; click the first point or press Enter to close the shape.', 'Backspace removes the last point, Escape cancels.', 'Click a shape to edit its details; drag its handles to move vertices.', 'Drag anywhere to pan, scroll to zoom.'],
+    region: ['Click to add points; click the first point or press Enter to close the shape.', 'Backspace removes the last point, Escape cancels.', 'Click a shape or route to edit it; drag its handles to move points.', 'Drag a small handle between two points to add a new point there.', 'Double-click or right-click a point to remove it.', 'Drag anywhere to pan, scroll to zoom.'],
     pin: ['Click anywhere to place a pin for a city, ruin, dungeon or other place.', 'Drag a pin to move it; click it to edit.'],
-    route: ['Click to add points along a road, river, trade route or border.', 'Click the last point again, press Enter or use Finish route to end it.', 'Backspace removes the last point, Escape cancels.', 'To edit a route, click it with the Region tool or pick it below.'],
+    route: ['Click to add points along a road, river, trade route or border.', 'Click the last point again, press Enter or use Finish route to end it.', 'Backspace removes the last point, Escape cancels.', 'To reshape a route, click it with the Region tool: drag its handles to move, add or remove points.'],
     measure: ['Click points to measure a distance; it appears in the bottom-right corner.', 'Set the map scale in Maps… to see real distances.', 'Escape or Clear resets the measurement.']
 };
 
@@ -65,7 +65,8 @@ let undoStack = [], redoStack = [];
 let editingId = null;
 let selectedRegionId = null;
 let selectedRouteId = null;
-let draggedVertexIndex = null;
+let vertexDrag = null;
+let lastVertexTap = null;
 let poiDrag = null;
 let editingPoiId = null, pendingPoiPoint = null;
 let editingRouteId = null, pendingRoutePoints = null;
@@ -526,17 +527,54 @@ function renderPois() {
     });
 }
 
+// The shape whose points can currently be edited: the selected region (closed) or route (open).
+function editableShape() {
+    if (exporting || mode !== 'EDIT') return null;
+    if (selectedRegionId) {
+        const r = regions.find(x => x.id === selectedRegionId);
+        if (r?.points?.length) return { points: r.points, closed: true, min: 3 };
+    }
+    if (selectedRouteId) {
+        const rt = routes.find(x => x.id === selectedRouteId);
+        if (rt?.points?.length) return { points: rt.points, closed: false, min: 2 };
+    }
+    return null;
+}
+
 function renderVertices() {
     verticesGroup.innerHTML = '';
-    if (exporting || !selectedRegionId || mode !== 'EDIT') return;
-    const r = regions.find(x => x.id === selectedRegionId);
-    if (!r) return;
-    r.points.forEach((p, i) => {
-        const c = svgEl('circle', { cx: p.x * mapWidth, cy: p.y * mapHeight, r: Math.max(4, currentViewBox.w / 200) });
+    const shape = editableShape();
+    if (!shape) return;
+    const { points, closed } = shape;
+    const radius = Math.max(4, currentViewBox.w / 200);
+    const edges = closed ? points.length : points.length - 1;
+    for (let i = 0; i < edges; i++) {
+        const a = toPx(points[i]), b = toPx(points[(i + 1) % points.length]);
+        const c = svgEl('circle', { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, r: radius * 0.7 });
+        c.classList.add('vertex-handle', 'midpoint-handle');
+        c.dataset.insert = i + 1;
+        c.appendChild(svgEl('title')).textContent = 'Drag to add a point';
+        verticesGroup.appendChild(c);
+    }
+    points.forEach((p, i) => {
+        const c = svgEl('circle', { cx: p.x * mapWidth, cy: p.y * mapHeight, r: radius });
         c.classList.add('vertex-handle');
         c.dataset.index = i;
+        c.appendChild(svgEl('title')).textContent = 'Drag to move · double-click or right-click to remove';
         verticesGroup.appendChild(c);
     });
+}
+
+function removeVertex(index) {
+    const shape = editableShape();
+    if (!shape || !shape.points[index]) return;
+    if (shape.points.length <= shape.min) {
+        showToast(shape.closed ? 'A region needs at least 3 points.' : 'A route needs at least 2 points.');
+        return;
+    }
+    pushUndo();
+    shape.points.splice(index, 1);
+    persistData(); refreshUI();
 }
 
 function renderDrawing() {
@@ -983,7 +1021,8 @@ function positionPopup() {
 function hidePopup() {
     popupAnchor = null;
     $('map-popup').classList.add('hidden');
-    if (selectedRouteId) { selectedRouteId = null; renderRoutes(); }
+    // In Edit mode the selected route is being reshaped, so keep it selected
+    if (selectedRouteId && mode !== 'EDIT') { selectedRouteId = null; renderRoutes(); }
 }
 
 function showPoiPopup(poi) {
@@ -1071,10 +1110,17 @@ function bindEvents() {
             return;
         }
 
-        if (draggedVertexIndex !== null && selectedRegionId) {
+        if (vertexDrag) {
+            const shape = editableShape();
+            if (!shape) { vertexDrag = null; return; }
+            if (!vertexDrag.moved) {
+                if (Math.hypot(e.clientX - vertexDrag.start.x, e.clientY - vertexDrag.start.y) <= 3) return;
+                vertexDrag.moved = true;
+                undoStack.push(vertexDrag.before); redoStack = [];
+                if (vertexDrag.insert) shape.points.splice(vertexDrag.index, 0, { x: 0, y: 0 });
+            }
             const coords = getSVGCoordinates(e);
-            const r = regions.find(x => x.id === selectedRegionId);
-            r.points[draggedVertexIndex] = { x: Math.max(0, Math.min(1, coords.x / mapWidth)), y: Math.max(0, Math.min(1, coords.y / mapHeight)) };
+            shape.points[vertexDrag.index] = { x: Math.max(0, Math.min(1, coords.x / mapWidth)), y: Math.max(0, Math.min(1, coords.y / mapHeight)) };
             refreshUI(); return;
         }
 
@@ -1122,7 +1168,21 @@ function bindEvents() {
             }
             return;
         }
-        if (draggedVertexIndex !== null) { draggedVertexIndex = null; persistData(); }
+        if (vertexDrag) {
+            const drag = vertexDrag;
+            vertexDrag = null;
+            if (drag.moved) { lastVertexTap = null; persistData(); return; }
+            if (drag.insert) return;
+            // Two quick taps on the same point remove it
+            const now = Date.now();
+            if (lastVertexTap && lastVertexTap.index === drag.index && now - lastVertexTap.time < 400) {
+                lastVertexTap = null;
+                removeVertex(drag.index);
+            } else {
+                lastVertexTap = { index: drag.index, time: now };
+            }
+            return;
+        }
         if (!isPanning) return;
         isPanning = false;
         updateCursor();
@@ -1131,10 +1191,20 @@ function bindEvents() {
 
     // Vertex Drag
     verticesGroup.addEventListener('pointerdown', e => {
-        if (e.target.classList.contains('vertex-handle')) {
-            e.stopPropagation(); draggedVertexIndex = parseInt(e.target.dataset.index); pushUndo();
-            e.target.setPointerCapture(e.pointerId);
-        }
+        if (e.button !== 0 || !e.target.classList.contains('vertex-handle')) return;
+        e.stopPropagation();
+        const insert = e.target.dataset.insert !== undefined;
+        vertexDrag = {
+            index: parseInt(insert ? e.target.dataset.insert : e.target.dataset.index),
+            insert, moved: false, before: snapshotState(),
+            start: { x: e.clientX, y: e.clientY }
+        };
+        mapSvg.setPointerCapture(e.pointerId);
+    });
+    verticesGroup.addEventListener('contextmenu', e => {
+        if (!e.target.classList.contains('vertex-handle') || e.target.dataset.index === undefined) return;
+        e.preventDefault();
+        removeVertex(parseInt(e.target.dataset.index));
     });
 
     window.addEventListener('resize', () => { renderScaleBar(); positionPopup(); });
@@ -1392,7 +1462,7 @@ function handleMapClick(e) {
         return;
     }
     if (mode === 'EDIT' && tool === 'region' && !target?.classList.contains('vertex-handle')) {
-        if (selectedRegionId) { selectedRegionId = null; refreshUI(); return; }
+        if (selectedRegionId || selectedRouteId) { selectedRegionId = null; selectedRouteId = null; refreshUI(); return; }
         addRegionPoint(point);
     }
 }
@@ -1606,7 +1676,7 @@ function finishDrawing() {
 }
 
 function editRegion(id) {
-    editingId = id; selectedRegionId = id; refreshUI();
+    editingId = id; selectedRegionId = id; selectedRouteId = null; refreshUI();
     const r = regions.find(x => x.id === id);
     $('modal-heading').textContent = 'Edit Region';
     fillRegionForm(r);
@@ -1691,6 +1761,7 @@ function finishRoute() {
 function editRoute(id) {
     const route = routes.find(r => r.id === id);
     if (!route) return;
+    if (mode === 'EDIT') { selectedRegionId = null; selectedRouteId = id; refreshUI(); }
     editingRouteId = id;
     pendingRoutePoints = null;
     openRouteModal(route, routeLength(route));

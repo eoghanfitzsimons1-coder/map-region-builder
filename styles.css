@@ -17,6 +17,8 @@
 .vertex-handle { fill: white; stroke: #3b82f6; stroke-width: 2px; cursor: grab; pointer-events: all; }
 .vertex-handle:hover { fill: #3b82f6; stroke: white; }
 .vertex-handle:active { cursor: grabbing; }
+.midpoint-handle { fill: rgba(255,255,255,0.55); stroke: #3b82f6; stroke-width: 1.5px; stroke-dasharray: 2 2; cursor: copy; }
+.midpoint-handle:hover { fill: #3b82f6; stroke: white; stroke-dasharray: none; }
 
 #toast { transition: opacity 0.2s; }
 
