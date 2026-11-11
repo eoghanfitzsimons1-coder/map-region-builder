@@ -171,6 +171,7 @@ async function loadMap(id) {
     img.setAttribute('width', mapWidth);
     img.setAttribute('height', mapHeight);
     currentViewBox = { x: 0, y: 0, w: mapWidth, h: mapHeight };
+    uiBaseWidth = !map.image && mapImageEl ? Math.min(mapWidth, BUNDLED_MAP_REFERENCE_WIDTH) : mapWidth;
 
     if (data.status === 'fulfilled') {
         const doc = normalizeDoc(data.value);
@@ -436,8 +437,13 @@ function svgEl(tag, attrs = {}) {
     return el;
 }
 
+// The bundled map1.jpg was re-exported at a higher resolution (1726 → 2589 px wide).
+// Keep its markers at the size they were designed for by sizing against the original width.
+const BUNDLED_MAP_REFERENCE_WIDTH = 1726;
+let uiBaseWidth = 1000;
+
 // Size in map units that stays roughly constant on screen while zooming
-function ui(n) { return n * currentViewBox.w / 1000; }
+function ui(n) { return n * (currentViewBox.w / mapWidth) * uiBaseWidth / 1000; }
 
 const toPx = p => ({ x: p.x * mapWidth, y: p.y * mapHeight });
 const pointsAttr = pts => pts.map(p => `${p.x},${p.y}`).join(' ');
@@ -468,7 +474,7 @@ function renderRegions() {
         regionsGroup.appendChild(poly);
 
         const center = polygonCentroid(r.points.map(toPx));
-        const label = svgEl('text', { x: center.x, y: center.y, 'font-size': Math.max(16, mapWidth / 50) });
+        const label = svgEl('text', { x: center.x, y: center.y, 'font-size': Math.max(16, uiBaseWidth / 50) });
         label.classList.add('region-label');
         label.textContent = r.title;
         labelsGroup.appendChild(label);
