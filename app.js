@@ -1,5 +1,6 @@
 // --- Constants ---
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const MAX_POI_IMAGES = 8;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const LAST_MAP_KEY = 'map-builder:last-map';
 const DEFAULT_MAPS = [{ id: 'default', name: 'Main map', image: null }];
@@ -73,6 +74,9 @@ let editingRouteId = null, pendingRoutePoints = null;
 let pendingCoatArmsFile = null;
 let removeCoatArms = false;
 let coatPreviewObjectUrl = null;
+let poiImageItems = [];
+let poiImageSession = 0;
+let lightbox = null;
 let modalSession = 0;
 let saveQueue = Promise.resolve();
 let toastTimeout = null;
@@ -1038,8 +1042,62 @@ function showPoiPopup(poi) {
             meta.appendChild(link);
         }
         popup.appendChild(meta);
+        const images = poiImageUrls(poi);
+        if (images.length) {
+            const gallery = el('div', 'grid grid-cols-3 gap-1 mb-2');
+            images.forEach((src, index) => {
+                const button = el('button', `block overflow-hidden rounded bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${index === 0 ? 'col-span-3 h-32' : 'h-14'}`);
+                button.setAttribute('aria-label', `View image ${index + 1} of ${poi.name || 'this place'}`);
+                const img = el('img', 'w-full h-full object-cover');
+                img.alt = '';
+                img.loading = 'lazy';
+                img.onload = positionPopup;
+                img.src = src;
+                button.appendChild(img);
+                button.onclick = () => openLightbox(images, index, poi.name || 'Unnamed place');
+                gallery.appendChild(button);
+            });
+            popup.appendChild(gallery);
+        }
         if (poi.description) popup.appendChild(el('p', 'text-gray-200 whitespace-pre-wrap', poi.description));
     });
+}
+
+function poiImageUrls(poi) {
+    return (Array.isArray(poi.images) ? poi.images : []).map(version => imageEndpoint(poi.id, version, 'place'));
+}
+
+// --- Lightbox ---
+function openLightbox(images, index, caption) {
+    lightbox = { images, index, caption };
+    renderLightbox();
+    $('image-lightbox').classList.remove('hidden');
+    $('image-lightbox').classList.add('flex');
+    $('btn-lightbox-close').focus();
+}
+
+function renderLightbox() {
+    if (!lightbox) return;
+    const { images, index, caption } = lightbox;
+    $('lightbox-image').src = images[index];
+    $('lightbox-image').alt = caption;
+    $('lightbox-caption').textContent = images.length > 1 ? `${caption} · ${index + 1} / ${images.length}` : caption;
+    const multiple = images.length > 1;
+    $('btn-lightbox-prev').classList.toggle('hidden', !multiple);
+    $('btn-lightbox-next').classList.toggle('hidden', !multiple);
+}
+
+function stepLightbox(delta) {
+    if (!lightbox || lightbox.images.length < 2) return;
+    lightbox.index = (lightbox.index + delta + lightbox.images.length) % lightbox.images.length;
+    renderLightbox();
+}
+
+function closeLightbox() {
+    lightbox = null;
+    $('image-lightbox').classList.add('hidden');
+    $('image-lightbox').classList.remove('flex');
+    $('lightbox-image').removeAttribute('src');
 }
 
 function showRoutePopup(route, anchor) {
@@ -1347,14 +1405,19 @@ function bindEvents() {
         const name = $('poi-name').value.trim().toLowerCase();
         if (name && regions.some(r => (r.details?.capital || '').trim().toLowerCase() === name)) $('poi-type').value = 'capital';
     };
-    $('btn-poi-cancel').onclick = () => { $('poi-modal').classList.add('hidden'); pendingPoiPoint = null; };
+    $('btn-poi-cancel').onclick = closePoiModal;
+    $('poi-images-input').onchange = addPoiImageFiles;
+    $('btn-lightbox-close').onclick = closeLightbox;
+    $('btn-lightbox-prev').onclick = () => stepLightbox(-1);
+    $('btn-lightbox-next').onclick = () => stepLightbox(1);
+    $('image-lightbox').onclick = e => { if (e.target === e.currentTarget) closeLightbox(); };
     $('btn-poi-save').onclick = savePoi;
     $('btn-poi-delete').onclick = () => {
         if (!confirm('Delete this place?')) return;
         pushUndo();
         pois = pois.filter(p => p.id !== editingPoiId);
         persistData(); refreshUI();
-        $('poi-modal').classList.add('hidden');
+        closePoiModal();
     };
 
     // Route modal
@@ -1402,6 +1465,12 @@ function populateTypeSelect(select, types) {
 }
 
 function handleKeydown(e) {
+    if (lightbox) {
+        if (e.key === 'Escape') closeLightbox();
+        else if (e.key === 'ArrowLeft') stepLightbox(-1);
+        else if (e.key === 'ArrowRight') stepLightbox(1);
+        return;
+    }
     if (e.key === 'Escape') {
         if (!$('history-overlay').classList.contains('hidden')) { closeHistory(); return; }
         if (!$('maps-modal').classList.contains('hidden')) { $('maps-modal').classList.add('hidden'); return; }
@@ -1709,6 +1778,7 @@ function openPoiModal(poi) {
     $('poi-name').value = poi?.name || '';
     $('poi-type').value = poi?.type || 'city';
     $('poi-desc').value = poi?.description || '';
+    resetPoiImages(poi);
     $('btn-poi-delete').classList.toggle('hidden', !poi);
     const suggestions = $('poi-suggestions');
     suggestions.innerHTML = '';
@@ -1735,19 +1805,121 @@ function editPoi(id) {
     openPoiModal(poi);
 }
 
-function savePoi() {
-    const values = {
-        name: $('poi-name').value.trim() || 'Unnamed place',
-        type: $('poi-type').value,
-        description: $('poi-desc').value.trim()
-    };
-    pushUndo();
+async function savePoi() {
     const existing = editingPoiId && pois.find(p => p.id === editingPoiId);
-    if (existing) Object.assign(existing, values);
-    else if (pendingPoiPoint) pois.push({ id: 'p_' + crypto.randomUUID(), ...pendingPoiPoint, ...values });
-    pendingPoiPoint = null;
+    if (!existing && !pendingPoiPoint) { closePoiModal(); return; }
+    const id = existing ? existing.id : 'p_' + crypto.randomUUID();
+    const point = pendingPoiPoint;
+    const session = poiImageSession;
+    const saveButton = $('btn-poi-save');
+    saveButton.disabled = true;
+    const hasUploads = poiImageItems.some(item => item.file);
+    if (hasUploads) saveButton.textContent = 'Uploading…';
+    try {
+        const images = [];
+        for (const item of poiImageItems) {
+            images.push(item.file ? await uploadPlaceImage(id, item.file) : item.version);
+        }
+        if (session !== poiImageSession) return;
+        const values = {
+            name: $('poi-name').value.trim() || 'Unnamed place',
+            type: $('poi-type').value,
+            description: $('poi-desc').value.trim(),
+            images
+        };
+        pushUndo();
+        const target = pois.find(p => p.id === id);
+        if (target) Object.assign(target, values);
+        else pois.push({ id, ...point, ...values });
+        closePoiModal();
+        persistData(); refreshUI();
+    } catch (error) {
+        showToast(`Could not save the place images: ${error.message}`);
+    } finally {
+        saveButton.disabled = false;
+        saveButton.textContent = 'Save';
+    }
+}
+
+function closePoiModal() {
     $('poi-modal').classList.add('hidden');
-    persistData(); refreshUI();
+    pendingPoiPoint = null;
+    resetPoiImages(null);
+}
+
+async function uploadPlaceImage(placeId, file) {
+    const version = crypto.randomUUID();
+    const response = await fetch(imageEndpoint(placeId, version, 'place'), {
+        method: 'POST',
+        headers: { 'Content-Type': file.type },
+        body: file
+    });
+    if (!response.ok) await throwResponseError(response, 'Uploading the image');
+    return version;
+}
+
+function resetPoiImages(poi) {
+    poiImageSession++;
+    poiImageItems.forEach(item => item.file && URL.revokeObjectURL(item.url));
+    poiImageItems = (Array.isArray(poi?.images) ? poi.images : []).map(version => ({
+        version, url: imageEndpoint(poi.id, version, 'place')
+    }));
+    $('poi-images-input').value = '';
+    renderPoiImages();
+}
+
+async function addPoiImageFiles(e) {
+    const files = [...e.target.files];
+    e.target.value = '';
+    const session = poiImageSession;
+    const room = MAX_POI_IMAGES - poiImageItems.length;
+    if (room <= 0) { showToast(`A place can have up to ${MAX_POI_IMAGES} images.`); return; }
+    if (files.length > room) showToast(`Only the first ${room} image${room === 1 ? '' : 's'} were added (limit ${MAX_POI_IMAGES}).`);
+    for (const file of files.slice(0, room)) {
+        if (!file.type.startsWith('image/')) { showToast(`${file.name} is not an image.`); continue; }
+        try {
+            const image = await shrinkImage(file);
+            if (session !== poiImageSession) return;
+            poiImageItems.push({ file: image, url: URL.createObjectURL(image) });
+            renderPoiImages();
+        } catch (error) {
+            showToast(error.message);
+        }
+    }
+}
+
+function renderPoiImages() {
+    const container = $('poi-images-preview');
+    container.innerHTML = '';
+    poiImageItems.forEach((item, index) => {
+        const tile = el('div', 'relative group h-16 rounded overflow-hidden bg-gray-900');
+        const img = el('img', 'w-full h-full object-cover cursor-zoom-in');
+        img.src = item.url;
+        img.alt = `Image ${index + 1}`;
+        img.onclick = () => openLightbox(poiImageItems.map(i => i.url), index, $('poi-name').value.trim() || 'Place image');
+        tile.appendChild(img);
+        const controls = el('div', 'absolute top-0.5 right-0.5 flex gap-0.5');
+        if (index > 0) {
+            const left = el('button', 'w-5 h-5 rounded bg-black/70 text-white text-xs leading-none hover:bg-black', '‹');
+            left.type = 'button';
+            left.title = 'Move earlier (the first image is the cover)';
+            left.onclick = () => { [poiImageItems[index - 1], poiImageItems[index]] = [poiImageItems[index], poiImageItems[index - 1]]; renderPoiImages(); };
+            controls.appendChild(left);
+        }
+        const remove = el('button', 'w-5 h-5 rounded bg-black/70 text-red-300 text-xs leading-none hover:bg-red-700 hover:text-white', '×');
+        remove.type = 'button';
+        remove.title = 'Remove image';
+        remove.setAttribute('aria-label', `Remove image ${index + 1}`);
+        remove.onclick = () => {
+            const [removed] = poiImageItems.splice(index, 1);
+            if (removed.file) URL.revokeObjectURL(removed.url);
+            renderPoiImages();
+        };
+        controls.appendChild(remove);
+        tile.appendChild(controls);
+        container.appendChild(tile);
+    });
+    $('poi-images-input').disabled = poiImageItems.length >= MAX_POI_IMAGES;
 }
 
 // --- Routes ---

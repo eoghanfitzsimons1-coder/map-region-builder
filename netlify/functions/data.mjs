@@ -30,12 +30,13 @@ export default async (req, context) => {
     const imageId = url.searchParams.get("image");
     const imageVersion = url.searchParams.get("version");
 
-    // Images: region coats of arms, or map backgrounds when kind=map
+    // Images: region coats of arms, map backgrounds (kind=map) or place photos (kind=place)
     if (imageId && imageVersion) {
       if (!ID_PATTERN.test(imageId) || !ID_PATTERN.test(imageVersion)) {
         return json({ error: "Invalid image id" }, 400);
       }
-      const prefix = url.searchParams.get("kind") === "map" ? "map-images" : "region-images";
+      const kind = url.searchParams.get("kind");
+      const prefix = kind === "map" ? "map-images" : kind === "place" ? "place-images" : "region-images";
       const key = `${prefix}/${imageId}/${imageVersion}`;
 
       if (req.method === "GET") {

@@ -211,7 +211,7 @@
 
     <!-- Place (pin) Modal -->
     <div id="poi-modal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50">
-        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-[26rem] max-w-full">
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-[26rem] max-w-full max-h-[90vh] overflow-y-auto">
             <h3 class="text-xl font-bold mb-4" id="poi-heading">New Place</h3>
             <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-400 mb-1">Name</label>
@@ -223,9 +223,15 @@
                 <label class="block text-sm font-medium text-gray-400 mb-1">Type</label>
                 <select id="poi-type" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white"></select>
             </div>
-            <div class="mb-6">
+            <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-400 mb-1">Description</label>
                 <textarea id="poi-desc" class="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white h-24 focus:outline-none focus:border-blue-500"></textarea>
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-400 mb-1" for="poi-images-input">Images</label>
+                <input type="file" id="poi-images-input" accept="image/*" multiple class="block w-full text-sm text-gray-300 file:mr-3 file:px-3 file:py-2 file:rounded file:border-0 file:bg-gray-700 file:text-white">
+                <div id="poi-images-preview" class="grid grid-cols-4 gap-2 mt-2"></div>
+                <p class="text-xs text-gray-500 mt-1">Up to 8 images. Large images are shrunk to fit 5 MB.</p>
             </div>
             <div class="flex justify-between">
                 <button id="btn-poi-delete" class="px-3 py-2 rounded text-red-400 hover:text-red-300 text-sm hidden">Delete</button>
@@ -318,6 +324,15 @@
             </header>
             <article id="history-content" class="markdown p-5 overflow-y-auto text-gray-200"></article>
         </section>
+    </div>
+
+    <!-- Image lightbox -->
+    <div id="image-lightbox" class="fixed inset-0 bg-black bg-opacity-90 hidden items-center justify-center p-6 z-[60]" role="dialog" aria-modal="true" aria-label="Image viewer">
+        <button id="btn-lightbox-close" class="absolute top-3 right-4 text-gray-300 hover:text-white text-3xl leading-none" aria-label="Close">×</button>
+        <button id="btn-lightbox-prev" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white text-4xl px-2" aria-label="Previous image">‹</button>
+        <img id="lightbox-image" class="max-w-full max-h-full object-contain rounded shadow-2xl" alt="">
+        <button id="btn-lightbox-next" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white text-4xl px-2" aria-label="Next image">›</button>
+        <p id="lightbox-caption" class="absolute bottom-3 left-0 right-0 text-center text-sm text-gray-300"></p>
     </div>
 
     <div id="toast" class="fixed bottom-4 right-4 bg-gray-800 border border-gray-700 px-4 py-2 rounded-lg shadow-xl opacity-0 pointer-events-none z-50"></div>
