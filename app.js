@@ -23,6 +23,12 @@ const POI_TYPES = {
     landmark: { label: 'Landmark', icon: '⛰️', color: '#c084fc' }
 };
 
+// Capitals and cities get a full profile page in addition to the popup
+const EXTENDED_POI_TYPES = ['capital', 'city'];
+const PLACE_DETAIL_LABELS = { population: 'Population', ruler: 'Ruler', founded: 'Founded', government: 'Government', trade: 'Trade', defences: 'Defences', faith: 'Faith', districts: 'Districts' };
+const PLACE_DETAIL_PLACEHOLDERS = { population: 'e.g. 40,000', ruler: 'e.g. Duke Aldric', founded: 'e.g. 312 AR', government: 'e.g. Council of guilds', trade: 'e.g. Wool, silver', defences: 'e.g. Twin walls, 800 guards', faith: 'e.g. The Lantern Mother', districts: 'e.g. Docks, High Quarter' };
+const MAX_CUSTOM_DETAILS = 20;
+
 const ROUTE_TYPES = {
     road: { label: 'Road', color: '#f3e3c3', width: 3, dash: '' },
     trade: { label: 'Trade route', color: '#f5b942', width: 3, dash: '10 6' },
@@ -127,6 +133,12 @@ async function init() {
         setMode('VIEW');
         selectRegion(linked, { zoom: true });
     }
+    const linkedPlace = hash.place && pois.find(p => p.id === hash.place);
+    if (linkedPlace && isExtendedPlace(linkedPlace)) {
+        if (mode !== 'VIEW') setMode('VIEW');
+        zoomToPoints([toPx(linkedPlace)], 0.25);
+        openPlaceOverlay(linkedPlace);
+    }
 }
 
 // --- Maps ---
@@ -144,7 +156,7 @@ async function loadMap(id) {
     currentMapId = map.id;
     try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch {}
 
-    cancelDrawing(); cancelRoute(); clearMeasure(); hidePopup(); stopTimeline();
+    cancelDrawing(); cancelRoute(); clearMeasure(); hidePopup(); closePlaceOverlay(); stopTimeline();
     regions = []; pois = []; routes = [];
     mapSettings = { ...DEFAULT_SETTINGS };
     undoStack = []; redoStack = [];
@@ -900,7 +912,7 @@ function toggleTimelinePlay() {
 // --- Tools & modes ---
 function setMode(newMode) {
     mode = newMode;
-    closeHistory(); hidePopup(); cancelDrawing(); cancelRoute(); clearMeasure();
+    closeHistory(); closePlaceOverlay(); hidePopup(); cancelDrawing(); cancelRoute(); clearMeasure();
     tool = mode === 'EDIT' ? 'region' : 'select';
     selectedRegionId = null;
     selectedRouteId = null;
@@ -1060,7 +1072,139 @@ function showPoiPopup(poi) {
             popup.appendChild(gallery);
         }
         if (poi.description) popup.appendChild(el('p', 'text-gray-200 whitespace-pre-wrap', poi.description));
+        if (isExtendedPlace(poi)) {
+            const more = el('button', 'mt-3 w-full px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold', 'Read more →');
+            more.type = 'button';
+            more.onclick = () => openPlaceOverlay(poi);
+            popup.appendChild(more);
+        }
     });
+}
+
+function isExtendedPlace(poi) {
+    return EXTENDED_POI_TYPES.includes(poi?.type);
+}
+
+// --- Place profile page ---
+let placeOverlayId = null;
+
+function capitalOf(poi) {
+    const name = (poi.name || '').trim().toLowerCase();
+    return name ? regions.filter(r => (r.details?.capital || '').trim().toLowerCase() === name) : [];
+}
+
+function openPlaceOverlay(poi) {
+    hidePopup();
+    placeOverlayId = poi.id;
+    const type = POI_TYPES[poi.type] || POI_TYPES.landmark;
+    const name = poi.name || 'Unnamed place';
+    $('place-title').textContent = `${type.icon} ${name}`;
+
+    const meta = $('place-meta');
+    meta.innerHTML = '';
+    meta.append(type.label);
+    const regionButton = region => {
+        const link = el('button', 'text-blue-400 hover:text-blue-300 underline', region.title);
+        link.type = 'button';
+        link.onclick = () => { closePlaceOverlay(); selectRegion(region, { zoom: true }); };
+        return link;
+    };
+    const capitalRegions = capitalOf(poi);
+    if (capitalRegions.length) {
+        meta.append(' of ');
+        capitalRegions.forEach((r, i) => { if (i) meta.append(', '); meta.appendChild(regionButton(r)); });
+    }
+    const region = regionContaining(poi);
+    if (region && !capitalRegions.includes(region)) {
+        meta.append(' in ');
+        meta.appendChild(regionButton(region));
+    }
+    const years = yearsText(poi);
+    if (years) meta.append(` · ${years}`);
+
+    const gallery = $('place-gallery');
+    gallery.innerHTML = '';
+    const images = poiImageUrls(poi);
+    if (images.length) {
+        const hero = el('button', 'block w-full h-72 overflow-hidden rounded-lg bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500');
+        hero.type = 'button';
+        hero.setAttribute('aria-label', `View image 1 of ${name}`);
+        const heroImg = el('img', 'w-full h-full object-cover');
+        heroImg.alt = '';
+        heroImg.src = images[0];
+        hero.appendChild(heroImg);
+        hero.onclick = () => openLightbox(images, 0, name);
+        gallery.appendChild(hero);
+        if (images.length > 1) {
+            const strip = el('div', 'flex gap-2 mt-2 overflow-x-auto');
+            images.slice(1).forEach((src, i) => {
+                const thumb = el('button', 'shrink-0 w-24 h-16 overflow-hidden rounded bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500');
+                thumb.type = 'button';
+                thumb.setAttribute('aria-label', `View image ${i + 2} of ${name}`);
+                const img = el('img', 'w-full h-full object-cover');
+                img.alt = '';
+                img.loading = 'lazy';
+                img.src = src;
+                thumb.appendChild(img);
+                thumb.onclick = () => openLightbox(images, i + 1, name);
+                strip.appendChild(thumb);
+            });
+            gallery.appendChild(strip);
+        }
+    }
+
+    gallery.classList.toggle('hidden', !images.length);
+    $('place-desc').textContent = poi.description || '';
+    $('place-desc').classList.toggle('hidden', !poi.description);
+
+    const cards = $('place-cards');
+    cards.innerHTML = '';
+    const rows = [
+        ...Object.entries(PLACE_DETAIL_LABELS).map(([key, label]) => ({ label, value: poi.details?.[key] })),
+        ...(Array.isArray(poi.customDetails) ? poi.customDetails : [])
+    ].filter(row => row.label && row.value);
+    rows.forEach(({ label, value }) => {
+        const card = el('div', 'bg-gray-900/60 p-2 rounded border border-gray-700');
+        card.appendChild(el('div', 'text-xs text-blue-400 font-bold uppercase', label));
+        card.appendChild(el('div', 'text-gray-200 whitespace-pre-wrap', value));
+        cards.appendChild(card);
+    });
+    cards.classList.toggle('hidden', !rows.length);
+
+    const content = $('place-content');
+    if (poi.history) renderMarkdown(poi.history, content);
+    else content.innerHTML = rows.length || poi.description || images.length ? '' : '<p><em>Nothing has been written about this place yet.</em></p>';
+
+    $('place-overlay').classList.remove('hidden');
+    $('place-overlay').classList.add('flex');
+    $('btn-close-place').focus();
+    updateHash();
+}
+
+function closePlaceOverlay() {
+    if (!placeOverlayId) return;
+    placeOverlayId = null;
+    $('place-overlay').classList.add('hidden');
+    $('place-overlay').classList.remove('flex');
+    updateHash();
+}
+
+// Markdown [[links]] in region and place text jump to the region or place they name
+function handleLoreLinkClick(e) {
+    const regionLink = e.target.closest('[data-region-id]');
+    const placeLink = e.target.closest('[data-place-id]');
+    if (regionLink) {
+        const region = regions.find(r => r.id === regionLink.dataset.regionId);
+        if (!region) return;
+        closeHistory(); closePlaceOverlay();
+        selectRegion(region, { zoom: true });
+    } else if (placeLink) {
+        const poi = pois.find(p => p.id === placeLink.dataset.placeId);
+        if (!poi) return;
+        closeHistory(); closePlaceOverlay();
+        if (isExtendedPlace(poi)) { zoomToPoints([toPx(poi)], 0.25); openPlaceOverlay(poi); }
+        else focusPoi(poi);
+    }
 }
 
 function poiImageUrls(poi) {
@@ -1403,9 +1547,25 @@ function bindEvents() {
     $('poi-name').oninput = () => {
         if (editingPoiId) return;
         const name = $('poi-name').value.trim().toLowerCase();
-        if (name && regions.some(r => (r.details?.capital || '').trim().toLowerCase() === name)) $('poi-type').value = 'capital';
+        if (name && regions.some(r => (r.details?.capital || '').trim().toLowerCase() === name)) { $('poi-type').value = 'capital'; updatePoiExtendedVisibility(); }
     };
     $('btn-poi-cancel').onclick = closePoiModal;
+    $('poi-type').onchange = updatePoiExtendedVisibility;
+    for (const [key, label] of Object.entries(PLACE_DETAIL_LABELS)) {
+        const wrap = el('div');
+        const lab = el('label', 'block text-xs text-gray-400 mb-0.5', label);
+        lab.htmlFor = `poi-det-${key}`;
+        const input = el('input', 'w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500');
+        input.type = 'text';
+        input.id = `poi-det-${key}`;
+        input.placeholder = PLACE_DETAIL_PLACEHOLDERS[key] || '';
+        wrap.append(lab, input);
+        $('poi-details-inputs').appendChild(wrap);
+    }
+    $('btn-poi-add-custom').onclick = () => {
+        if ($('poi-custom-details').children.length >= MAX_CUSTOM_DETAILS) { showToast(`A place can have up to ${MAX_CUSTOM_DETAILS} custom characteristics.`); return; }
+        addCustomDetailRow().querySelector('input').focus();
+    };
     $('poi-images-input').onchange = addPoiImageFiles;
     $('btn-lightbox-close').onclick = closeLightbox;
     $('btn-lightbox-prev').onclick = () => stepLightbox(-1);
@@ -1443,14 +1603,15 @@ function bindEvents() {
     $('info-history-button').onclick = openHistory;
     $('btn-close-history').onclick = closeHistory;
     $('history-overlay').onclick = e => { if (e.target === $('history-overlay')) closeHistory(); };
-    $('history-content').addEventListener('click', e => {
-        const link = e.target.closest('[data-region-id]');
-        if (!link) return;
-        const region = regions.find(r => r.id === link.dataset.regionId);
-        if (!region) return;
-        closeHistory();
-        selectRegion(region, { zoom: true });
-    });
+    $('history-content').addEventListener('click', handleLoreLinkClick);
+    $('place-content').addEventListener('click', handleLoreLinkClick);
+    $('btn-close-place').onclick = closePlaceOverlay;
+    $('place-overlay').onclick = e => { if (e.target === e.currentTarget) closePlaceOverlay(); };
+    $('btn-place-show').onclick = () => {
+        const poi = pois.find(p => p.id === placeOverlayId);
+        closePlaceOverlay();
+        if (poi) focusPoi(poi);
+    };
 
     document.addEventListener('keydown', handleKeydown);
 }
@@ -1473,6 +1634,7 @@ function handleKeydown(e) {
     }
     if (e.key === 'Escape') {
         if (!$('history-overlay').classList.contains('hidden')) { closeHistory(); return; }
+        if (placeOverlayId) { closePlaceOverlay(); return; }
         if (!$('maps-modal').classList.contains('hidden')) { $('maps-modal').classList.add('hidden'); return; }
         if (anyModalOpen()) return;
         hidePopup(); cancelDrawing(); cancelRoute();
@@ -1480,7 +1642,7 @@ function handleKeydown(e) {
         renderTools();
         return;
     }
-    if (anyModalOpen() || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
+    if (anyModalOpen() || placeOverlayId || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
 
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
@@ -1778,6 +1940,11 @@ function openPoiModal(poi) {
     $('poi-name').value = poi?.name || '';
     $('poi-type').value = poi?.type || 'city';
     $('poi-desc').value = poi?.description || '';
+    $('poi-history').value = poi?.history || '';
+    for (const key of Object.keys(PLACE_DETAIL_LABELS)) $(`poi-det-${key}`).value = poi?.details?.[key] || '';
+    $('poi-custom-details').innerHTML = '';
+    (Array.isArray(poi?.customDetails) ? poi.customDetails : []).forEach(row => addCustomDetailRow(row));
+    updatePoiExtendedVisibility();
     resetPoiImages(poi);
     $('btn-poi-delete').classList.toggle('hidden', !poi);
     const suggestions = $('poi-suggestions');
@@ -1825,7 +1992,8 @@ async function savePoi() {
             name: $('poi-name').value.trim() || 'Unnamed place',
             type: $('poi-type').value,
             description: $('poi-desc').value.trim(),
-            images
+            images,
+            ...readPoiExtendedForm()
         };
         pushUndo();
         const target = pois.find(p => p.id === id);
@@ -1839,6 +2007,44 @@ async function savePoi() {
         saveButton.disabled = false;
         saveButton.textContent = 'Save';
     }
+}
+
+function updatePoiExtendedVisibility() {
+    $('poi-extended').classList.toggle('hidden', !EXTENDED_POI_TYPES.includes($('poi-type').value));
+}
+
+function addCustomDetailRow(row = {}) {
+    const line = el('div', 'flex gap-1');
+    const label = el('input', 'w-2/5 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500');
+    label.type = 'text';
+    label.placeholder = 'e.g. Patron saint';
+    label.value = row.label || '';
+    label.setAttribute('aria-label', 'Characteristic name');
+    const value = el('input', 'flex-1 min-w-0 bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500');
+    value.type = 'text';
+    value.placeholder = 'Value';
+    value.value = row.value || '';
+    value.setAttribute('aria-label', 'Characteristic value');
+    const remove = el('button', 'px-2 text-red-400 hover:text-red-300', '×');
+    remove.type = 'button';
+    remove.title = 'Remove characteristic';
+    remove.onclick = () => line.remove();
+    line.append(label, value, remove);
+    $('poi-custom-details').appendChild(line);
+    return line;
+}
+
+// Kept for every type, so switching a city to a town and back does not lose its profile
+function readPoiExtendedForm() {
+    const details = {};
+    for (const key of Object.keys(PLACE_DETAIL_LABELS)) {
+        const value = $(`poi-det-${key}`).value.trim();
+        if (value) details[key] = value;
+    }
+    const customDetails = [...$('poi-custom-details').children]
+        .map(line => { const [label, value] = line.querySelectorAll('input'); return { label: label.value.trim(), value: value.value.trim() }; })
+        .filter(row => row.label && row.value);
+    return { details, customDetails, history: $('poi-history').value.trim() };
 }
 
 function closePoiModal() {
@@ -2002,7 +2208,11 @@ function renderInline(text) {
 
 function regionLinkHtml(name, label) {
     const region = regions.find(r => (r.title || '').trim().toLowerCase() === name.toLowerCase());
-    if (!region) return `<span class="md-missing-link" title="No region named ${escapeHtml(name)}">${escapeHtml(label)}</span>`;
+    if (!region) {
+        const poi = findPoiByName(name);
+        if (poi) return `<button type="button" class="md-region-link" data-place-id="${escapeHtml(poi.id)}">${escapeHtml(label)}</button>`;
+        return `<span class="md-missing-link" title="No region or place named ${escapeHtml(name)}">${escapeHtml(label)}</span>`;
+    }
     return `<button type="button" class="md-region-link" data-region-id="${escapeHtml(region.id)}">${escapeHtml(label)}</button>`;
 }
 
@@ -2255,6 +2465,7 @@ function readHash() {
 function updateHash() {
     const params = new URLSearchParams({ map: currentMapId });
     if (mode === 'VIEW' && selectedRegionId) params.set('region', selectedRegionId);
+    if (mode === 'VIEW' && placeOverlayId) params.set('place', placeOverlayId);
     history.replaceState(null, '', `#${params}`);
 }
 
