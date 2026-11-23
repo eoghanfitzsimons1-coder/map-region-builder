@@ -1204,6 +1204,7 @@ function openPlaceOverlay(poi) {
         cards.appendChild(card);
     });
     cards.classList.toggle('hidden', !rows.length);
+    $('place-top').classList.toggle('hidden', !rows.length && !poi.coatArms);
 
     const professions = placeProfessions(poi);
     const professionList = $('place-professions-list');
