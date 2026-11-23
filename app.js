@@ -24,10 +24,27 @@ const POI_TYPES = {
 };
 
 // Capitals and cities get a full profile page in addition to the popup
-const EXTENDED_POI_TYPES = ['capital', 'city'];
-const PLACE_DETAIL_LABELS = { population: 'Population', ruler: 'Ruler', founded: 'Founded', government: 'Government', trade: 'Trade', defences: 'Defences', faith: 'Faith', districts: 'Districts' };
-const PLACE_DETAIL_PLACEHOLDERS = { population: 'e.g. 40,000', ruler: 'e.g. Duke Aldric', founded: 'e.g. 312 AR', government: 'e.g. Council of guilds', trade: 'e.g. Wool, silver', defences: 'e.g. Twin walls, 800 guards', faith: 'e.g. The Lantern Mother', districts: 'e.g. Docks, High Quarter' };
+const EXTENDED_POI_TYPES = ['capital', 'city', 'town'];
+const PLACE_DETAIL_LABELS = { landmarks: 'Landmarks', ruler: 'Ruler', transit: 'Transit', government: 'Government', trade: 'Trade', defences: 'Defences', faith: 'Faith', districts: 'Districts' };
+const PLACE_DETAIL_PLACEHOLDERS = { landmarks: 'e.g. Sky Bridge, Old Mill', ruler: 'e.g. Duke Aldric', transit: 'e.g. Minecart line, Nether hub', government: 'e.g. Council of guilds', trade: 'e.g. Wool, silver', defences: 'e.g. Twin walls, 800 guards', faith: 'e.g. The Lantern Mother', districts: 'e.g. Docks, High Quarter' };
+// Fields earlier versions had; shown on the profile until edited, then kept as custom characteristics
+const LEGACY_PLACE_DETAIL_LABELS = { population: 'Population', founded: 'Founded' };
 const MAX_CUSTOM_DETAILS = 20;
+const VILLAGER_PROFESSIONS = {
+    armorer: { label: 'Armorer', icon: '🛡️' },
+    butcher: { label: 'Butcher', icon: '🥩' },
+    cartographer: { label: 'Cartographer', icon: '🗺️' },
+    cleric: { label: 'Cleric', icon: '🔮' },
+    farmer: { label: 'Farmer', icon: '🌾' },
+    fisherman: { label: 'Fisherman', icon: '🎣' },
+    fletcher: { label: 'Fletcher', icon: '🏹' },
+    leatherworker: { label: 'Leatherworker', icon: '👜' },
+    librarian: { label: 'Librarian', icon: '📚' },
+    mason: { label: 'Mason / Stonemason', icon: '🧱' },
+    shepherd: { label: 'Shepherd', icon: '🐑' },
+    toolsmith: { label: 'Toolsmith', icon: '⛏️' },
+    weaponsmith: { label: 'Weaponsmith', icon: '⚔️' }
+};
 
 const ROUTE_TYPES = {
     road: { label: 'Road', color: '#f3e3c3', width: 3, dash: '' },
@@ -82,6 +99,8 @@ let removeCoatArms = false;
 let coatPreviewObjectUrl = null;
 let poiImageItems = [];
 let poiImageSession = 0;
+let poiCoat = { version: null, file: null, url: '' };
+let poiProfessions = new Set();
 let lightbox = null;
 let modalSession = 0;
 let saveQueue = Promise.resolve();
@@ -1044,7 +1063,16 @@ function hidePopup() {
 function showPoiPopup(poi) {
     const type = POI_TYPES[poi.type] || POI_TYPES.landmark;
     showPopup(toPx(poi), popup => {
-        popup.appendChild(el('div', 'font-bold text-base text-white', `${type.icon} ${poi.name || 'Unnamed place'}`));
+        const heading = el('div', 'flex items-center gap-2');
+        if (poi.coatArms) {
+            const coat = el('img', 'w-10 h-10 object-contain shrink-0 rounded bg-gray-900 p-0.5');
+            coat.alt = 'Coat of arms';
+            coat.onload = positionPopup;
+            coat.src = imageEndpoint(poi.id, poi.coatArms, 'place');
+            heading.appendChild(coat);
+        }
+        heading.appendChild(el('div', 'font-bold text-base text-white', `${type.icon} ${poi.name || 'Unnamed place'}`));
+        popup.appendChild(heading);
         const meta = el('div', 'text-xs text-gray-400 mb-2', type.label);
         const region = regionContaining(poi);
         if (region) {
@@ -1054,22 +1082,20 @@ function showPoiPopup(poi) {
             meta.appendChild(link);
         }
         popup.appendChild(meta);
+        // Only the cover image shows here; places with a profile show the rest under Read more
         const images = poiImageUrls(poi);
         if (images.length) {
-            const gallery = el('div', 'grid grid-cols-3 gap-1 mb-2');
-            images.forEach((src, index) => {
-                const button = el('button', `block overflow-hidden rounded bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${index === 0 ? 'col-span-3 h-32' : 'h-14'}`);
-                button.setAttribute('aria-label', `View image ${index + 1} of ${poi.name || 'this place'}`);
-                const img = el('img', 'w-full h-full object-cover');
-                img.alt = '';
-                img.loading = 'lazy';
-                img.onload = positionPopup;
-                img.src = src;
-                button.appendChild(img);
-                button.onclick = () => openLightbox(images, index, poi.name || 'Unnamed place');
-                gallery.appendChild(button);
-            });
-            popup.appendChild(gallery);
+            const button = el('button', 'block w-full h-32 mb-2 overflow-hidden rounded bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500');
+            button.type = 'button';
+            button.setAttribute('aria-label', `View image of ${poi.name || 'this place'}`);
+            const img = el('img', 'w-full h-full object-cover');
+            img.alt = '';
+            img.onload = positionPopup;
+            img.src = images[0];
+            button.appendChild(img);
+            const shown = isExtendedPlace(poi) ? images.slice(0, 1) : images;
+            button.onclick = () => openLightbox(shown, 0, poi.name || 'Unnamed place');
+            popup.appendChild(button);
         }
         if (poi.description) popup.appendChild(el('p', 'text-gray-200 whitespace-pre-wrap', poi.description));
         if (isExtendedPlace(poi)) {
@@ -1099,6 +1125,14 @@ function openPlaceOverlay(poi) {
     const type = POI_TYPES[poi.type] || POI_TYPES.landmark;
     const name = poi.name || 'Unnamed place';
     $('place-title').textContent = `${type.icon} ${name}`;
+    const coat = $('place-coat-of-arms');
+    if (poi.coatArms) {
+        coat.src = imageEndpoint(poi.id, poi.coatArms, 'place');
+        coat.classList.remove('hidden');
+    } else {
+        coat.removeAttribute('src');
+        coat.classList.add('hidden');
+    }
 
     const meta = $('place-meta');
     meta.innerHTML = '';
@@ -1160,7 +1194,7 @@ function openPlaceOverlay(poi) {
     const cards = $('place-cards');
     cards.innerHTML = '';
     const rows = [
-        ...Object.entries(PLACE_DETAIL_LABELS).map(([key, label]) => ({ label, value: poi.details?.[key] })),
+        ...Object.entries({ ...PLACE_DETAIL_LABELS, ...LEGACY_PLACE_DETAIL_LABELS }).map(([key, label]) => ({ label, value: poi.details?.[key] })),
         ...(Array.isArray(poi.customDetails) ? poi.customDetails : [])
     ].filter(row => row.label && row.value);
     rows.forEach(({ label, value }) => {
@@ -1171,9 +1205,21 @@ function openPlaceOverlay(poi) {
     });
     cards.classList.toggle('hidden', !rows.length);
 
+    const professions = placeProfessions(poi);
+    const professionList = $('place-professions-list');
+    professionList.innerHTML = '';
+    Object.entries(VILLAGER_PROFESSIONS).forEach(([key, { label, icon }]) => {
+        const present = professions.includes(key);
+        const chip = el('div', `px-2 py-1.5 rounded border text-sm ${present ? 'bg-emerald-900/50 border-emerald-500 text-emerald-100' : 'bg-gray-900/40 border-gray-700 text-gray-500 line-through decoration-gray-600'}`, `${icon} ${label}`);
+        chip.title = present ? `${label}: present` : `${label}: not present`;
+        professionList.appendChild(chip);
+    });
+    $('place-professions-count').textContent = `${professions.length} / ${Object.keys(VILLAGER_PROFESSIONS).length}`;
+    $('place-professions').classList.toggle('hidden', !professions.length);
+
     const content = $('place-content');
     if (poi.history) renderMarkdown(poi.history, content);
-    else content.innerHTML = rows.length || poi.description || images.length ? '' : '<p><em>Nothing has been written about this place yet.</em></p>';
+    else content.innerHTML = rows.length || professions.length || poi.description || images.length ? '' : '<p><em>Nothing has been written about this place yet.</em></p>';
 
     $('place-overlay').classList.remove('hidden');
     $('place-overlay').classList.add('flex');
@@ -1205,6 +1251,10 @@ function handleLoreLinkClick(e) {
         if (isExtendedPlace(poi)) { zoomToPoints([toPx(poi)], 0.25); openPlaceOverlay(poi); }
         else focusPoi(poi);
     }
+}
+
+function placeProfessions(poi) {
+    return (Array.isArray(poi?.professions) ? poi.professions : []).filter(key => VILLAGER_PROFESSIONS[key]);
 }
 
 function poiImageUrls(poi) {
@@ -1567,6 +1617,8 @@ function bindEvents() {
         addCustomDetailRow().querySelector('input').focus();
     };
     $('poi-images-input').onchange = addPoiImageFiles;
+    $('poi-coat-input').onchange = addPoiCoatFile;
+    $('btn-poi-coat-clear').onclick = () => setPoiCoat({ version: null, file: null, url: '' });
     $('btn-lightbox-close').onclick = closeLightbox;
     $('btn-lightbox-prev').onclick = () => stepLightbox(-1);
     $('btn-lightbox-next').onclick = () => stepLightbox(1);
@@ -1944,8 +1996,15 @@ function openPoiModal(poi) {
     for (const key of Object.keys(PLACE_DETAIL_LABELS)) $(`poi-det-${key}`).value = poi?.details?.[key] || '';
     $('poi-custom-details').innerHTML = '';
     (Array.isArray(poi?.customDetails) ? poi.customDetails : []).forEach(row => addCustomDetailRow(row));
+    // Values from the retired Population and Founded fields move into custom characteristics
+    for (const [key, label] of Object.entries(LEGACY_PLACE_DETAIL_LABELS)) {
+        if (poi?.details?.[key]) addCustomDetailRow({ label, value: poi.details[key] });
+    }
+    poiProfessions = new Set(placeProfessions(poi));
+    renderPoiProfessions();
     updatePoiExtendedVisibility();
     resetPoiImages(poi);
+    resetPoiCoat(poi);
     $('btn-poi-delete').classList.toggle('hidden', !poi);
     const suggestions = $('poi-suggestions');
     suggestions.innerHTML = '';
@@ -1980,19 +2039,22 @@ async function savePoi() {
     const session = poiImageSession;
     const saveButton = $('btn-poi-save');
     saveButton.disabled = true;
-    const hasUploads = poiImageItems.some(item => item.file);
+    const hasUploads = poiImageItems.some(item => item.file) || poiCoat.file;
     if (hasUploads) saveButton.textContent = 'Uploading…';
     try {
         const images = [];
         for (const item of poiImageItems) {
             images.push(item.file ? await uploadPlaceImage(id, item.file) : item.version);
         }
+        let coatArms = poiCoat.version;
+        if (poiCoat.file) coatArms = await uploadPlaceImage(id, poiCoat.file);
         if (session !== poiImageSession) return;
         const values = {
             name: $('poi-name').value.trim() || 'Unnamed place',
             type: $('poi-type').value,
             description: $('poi-desc').value.trim(),
             images,
+            coatArms: coatArms || null,
             ...readPoiExtendedForm()
         };
         pushUndo();
@@ -2044,13 +2106,66 @@ function readPoiExtendedForm() {
     const customDetails = [...$('poi-custom-details').children]
         .map(line => { const [label, value] = line.querySelectorAll('input'); return { label: label.value.trim(), value: value.value.trim() }; })
         .filter(row => row.label && row.value);
-    return { details, customDetails, history: $('poi-history').value.trim() };
+    const professions = Object.keys(VILLAGER_PROFESSIONS).filter(key => poiProfessions.has(key));
+    return { details, customDetails, professions, history: $('poi-history').value.trim() };
 }
 
 function closePoiModal() {
     $('poi-modal').classList.add('hidden');
     pendingPoiPoint = null;
     resetPoiImages(null);
+    resetPoiCoat(null);
+}
+
+function renderPoiProfessions() {
+    const container = $('poi-professions');
+    container.innerHTML = '';
+    Object.entries(VILLAGER_PROFESSIONS).forEach(([key, { label, icon }]) => {
+        const on = poiProfessions.has(key);
+        const button = el('button', `px-2 py-1.5 rounded border text-xs text-left transition-colors ${on ? 'bg-emerald-700 border-emerald-400 text-white' : 'bg-gray-900 border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200'}`, `${icon} ${label}`);
+        button.type = 'button';
+        button.setAttribute('aria-pressed', String(on));
+        button.onclick = () => {
+            if (poiProfessions.has(key)) poiProfessions.delete(key);
+            else poiProfessions.add(key);
+            renderPoiProfessions();
+        };
+        container.appendChild(button);
+    });
+}
+
+function resetPoiCoat(poi) {
+    setPoiCoat({ version: poi?.coatArms || null, file: null, url: poi?.coatArms ? imageEndpoint(poi.id, poi.coatArms, 'place') : '' });
+    $('poi-coat-input').value = '';
+}
+
+function setPoiCoat(next) {
+    if (poiCoat.file) URL.revokeObjectURL(poiCoat.url);
+    poiCoat = next;
+    const preview = $('poi-coat-preview');
+    if (next.url) {
+        preview.src = next.url;
+        preview.classList.remove('hidden');
+    } else {
+        preview.removeAttribute('src');
+        preview.classList.add('hidden');
+    }
+    $('btn-poi-coat-clear').classList.toggle('hidden', !next.url);
+}
+
+async function addPoiCoatFile(e) {
+    const [file] = e.target.files;
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showToast(`${file.name} is not an image.`); return; }
+    const session = poiImageSession;
+    try {
+        const image = await shrinkImage(file);
+        if (session !== poiImageSession) return;
+        setPoiCoat({ version: null, file: image, url: URL.createObjectURL(image) });
+    } catch (error) {
+        showToast(error.message);
+    }
 }
 
 async function uploadPlaceImage(placeId, file) {
