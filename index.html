@@ -234,8 +234,16 @@
                 <p class="text-xs text-gray-500 mt-1">Up to 8 images. Large images are shrunk to fit 5 MB.</p>
             </div>
             <div id="poi-extended" class="hidden mb-6 border-t border-gray-700 pt-4">
-                <h4 class="text-sm font-semibold text-blue-300 mb-1">City profile</h4>
+                <h4 class="text-sm font-semibold text-blue-300 mb-1">City &amp; town profile</h4>
                 <p class="text-xs text-gray-500 mb-3">Shown in the full page that opens from the place's popup. Leave anything blank to hide it.</p>
+                <div class="mb-3">
+                    <label class="block text-xs text-gray-400 mb-1" for="poi-coat-input">Coat of arms</label>
+                    <input type="file" id="poi-coat-input" accept="image/*" class="block w-full text-sm text-gray-300 file:mr-3 file:px-3 file:py-2 file:rounded file:border-0 file:bg-gray-700 file:text-white">
+                    <div class="flex items-center gap-3 mt-2">
+                        <img id="poi-coat-preview" class="hidden w-16 h-16 object-contain rounded bg-gray-900 p-1" alt="Coat of arms preview">
+                        <button type="button" id="btn-poi-coat-clear" class="hidden text-sm text-red-400 hover:text-red-300">Remove coat of arms</button>
+                    </div>
+                </div>
                 <div id="poi-details-inputs" class="grid grid-cols-2 gap-2 mb-3"></div>
                 <div class="mb-3">
                     <div class="flex items-center justify-between mb-1">
@@ -243,6 +251,10 @@
                         <button type="button" id="btn-poi-add-custom" class="text-xs text-blue-400 hover:text-blue-300">+ Add</button>
                     </div>
                     <div id="poi-custom-details" class="space-y-1"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="block text-xs text-gray-400 mb-1">Villager professions <span class="text-gray-500">(click to mark which are in this place)</span></label>
+                    <div id="poi-professions" class="grid grid-cols-2 gap-1"></div>
                 </div>
                 <div>
                     <label class="block text-xs text-gray-400 mb-1" for="poi-history">History &amp; lore</label>
@@ -345,9 +357,12 @@
     <div id="place-overlay" class="fixed inset-0 bg-black bg-opacity-80 hidden items-center justify-center p-4 z-40" role="dialog" aria-modal="true" aria-labelledby="place-title">
         <section class="w-full max-w-4xl max-h-[90vh] flex flex-col bg-gray-800 border border-gray-600 rounded-xl shadow-2xl">
             <header class="flex items-start justify-between gap-4 p-5 border-b border-gray-700">
-                <div class="min-w-0">
-                    <h2 id="place-title" class="text-2xl font-bold text-white"></h2>
-                    <div id="place-meta" class="text-sm text-gray-400 mt-1"></div>
+                <div class="flex items-start gap-3 min-w-0">
+                    <img id="place-coat-of-arms" class="hidden w-16 h-16 object-contain shrink-0 rounded bg-gray-900 p-1" alt="Coat of arms">
+                    <div class="min-w-0">
+                        <h2 id="place-title" class="text-2xl font-bold text-white"></h2>
+                        <div id="place-meta" class="text-sm text-gray-400 mt-1"></div>
+                    </div>
                 </div>
                 <div class="flex items-center gap-3 shrink-0">
                     <button type="button" id="btn-place-show" class="text-sm px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200">📍 Show on map</button>
@@ -358,6 +373,13 @@
                 <div id="place-gallery" class="mb-5"></div>
                 <p id="place-desc" class="text-gray-200 whitespace-pre-wrap mb-5"></p>
                 <div id="place-cards" class="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm mb-5"></div>
+                <div id="place-professions" class="hidden mb-5">
+                    <div class="flex items-baseline gap-2 mb-2">
+                        <h3 class="text-xs text-blue-400 font-bold uppercase">Villager professions</h3>
+                        <span id="place-professions-count" class="text-xs text-gray-500"></span>
+                    </div>
+                    <div id="place-professions-list" class="grid grid-cols-2 md:grid-cols-4 gap-2"></div>
+                </div>
                 <article id="place-content" class="markdown text-gray-200"></article>
             </div>
         </section>
